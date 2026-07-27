@@ -75,6 +75,7 @@ class MemoryCollectionPersistence implements CollectionPersistence {
       lastUpdatedAt: postings.at(-1)?.ingestedAt ?? null,
     };
   }
+  async getJobPostings() { return [...this.postings.values()].map((posting) => structuredClone(posting)); }
   async findBySourceIdentity(adapter: string, identity: string) { return this.posting(this.sourceAliases.get(`${adapter}:${identity}`)); }
   async findByCanonicalUrl(url: string) { return this.posting(this.urlAliases.get(url)); }
   async findByContentHash(hash: string) { return this.posting(this.contentAliases.get(hash)); }

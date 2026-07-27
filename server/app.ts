@@ -23,6 +23,11 @@ import {
   type ProfileExtraction,
   type ResumeBlobStorage,
 } from "./onboarding.js";
+import {
+  InvalidFitWeightsError,
+  RecommendationStatusSchema,
+  rankRecommendations,
+} from "./recommendation.js";
 
 const HealthResponse = z.object({
   status: z.literal("ok"),
@@ -385,6 +390,97 @@ export function createApp({
       collectionPersistence.getJobPoolSummary(),
     ]);
     return context.json({ latestRun, jobPoolSummary });
+  });
+
+  app.get("/api/recommendations", async (context) => {
+    if (!collectionPersistence || !onboardingPersistence) {
+      return context.json(
+        { error: { code: "recommendations_unavailable", message: "Job Recommendations are not configured." } },
+        503,
+      );
+    }
+    const requestedView = context.req.query("view") ?? context.req.query("status") ?? "eligible";
+    const view = z.enum(["eligible", "review-required", "excluded", "failed"]).safeParse(requestedView);
+    if (!view.success) {
+      return context.json(
+        { error: { code: "invalid_recommendation_view", message: "Choose eligible, review-required, excluded, or failed." } },
+        422,
+      );
+    }
+    const candidateProfile = await onboardingPersistence.getActiveProfile();
+    if (!candidateProfile) {
+      return context.json(
+        { error: { code: "active_profile_required", message: "Confirm a Candidate Profile before viewing Job Recommendations." } },
+        409,
+      );
+    }
+
+    try {
+      const [postings, latestRun] = await Promise.all([
+        collectionPersistence.getJobPostings(),
+        collectionPersistence.getLatestRun(),
+      ]);
+      const all = rankRecommendations(candidateProfile, postings);
+      const counts = {
+        eligible: all.filter((recommendation) => recommendation.status === "eligible").length,
+        reviewRequired: all.filter((recommendation) => recommendation.status === "review-required").length,
+        excluded: all.filter((recommendation) => recommendation.status === "excluded").length,
+        failed: latestRun?.errors.length ?? 0,
+      };
+      const recommendations = view.data === "failed"
+        ? []
+        : all.filter((recommendation) => recommendation.status === RecommendationStatusSchema.parse(view.data));
+      return context.json({
+        view: view.data,
+        counts,
+        recommendations,
+        failedPostings: view.data === "failed" ? latestRun?.errors ?? [] : [],
+      });
+    } catch (error) {
+      if (error instanceof InvalidFitWeightsError) {
+        return context.json(
+          { error: { code: "invalid_fit_weights", message: error.message, total: error.total } },
+          422,
+        );
+      }
+      throw error;
+    }
+  });
+
+  app.get("/api/recommendations/:recommendationId", async (context) => {
+    if (!collectionPersistence || !onboardingPersistence) {
+      return context.json(
+        { error: { code: "recommendations_unavailable", message: "Job Recommendations are not configured." } },
+        503,
+      );
+    }
+    const candidateProfile = await onboardingPersistence.getActiveProfile();
+    if (!candidateProfile) {
+      return context.json(
+        { error: { code: "active_profile_required", message: "Confirm a Candidate Profile before viewing Job Recommendations." } },
+        409,
+      );
+    }
+    let recommendations;
+    try {
+      recommendations = rankRecommendations(candidateProfile, await collectionPersistence.getJobPostings());
+    } catch (error) {
+      if (error instanceof InvalidFitWeightsError) {
+        return context.json(
+          { error: { code: "invalid_fit_weights", message: error.message, total: error.total } },
+          422,
+        );
+      }
+      throw error;
+    }
+    const recommendation = recommendations.find((item) => item.id === context.req.param("recommendationId"));
+    if (!recommendation) {
+      return context.json(
+        { error: { code: "recommendation_not_found", message: "Job Recommendation not found." } },
+        404,
+      );
+    }
+    return context.json({ recommendation });
   });
 
   app.post("/api/collection-runs", async (context) => {

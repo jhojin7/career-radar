@@ -2,7 +2,7 @@
 
 Career Radar is a locally runnable web application that turns a confirmed Candidate Profile into evidence-backed, deterministic Job Recommendations. Production persistence is designed for Firestore and Cloud Storage.
 
-The current slice delivers PDF resume onboarding and a local Job Pool collection pipeline: a Hono HTTP Interface, a responsive React/Vite UI built with shadcn/ui and Tailwind CSS, Vertex AI Gemini extraction, immutable Candidate Profile versions in Firestore, confirmed Search Targets, TXT/PDF Job Posting normalization, revision-aware deduplication, and separate raw-source blob storage. One production process serves both the API and compiled browser assets.
+The current slice delivers PDF resume onboarding, local Job Pool collection, and deterministic Job Recommendations: a Hono HTTP Interface, a responsive React/Vite UI built with shadcn/ui and Tailwind CSS, Vertex AI Gemini extraction, immutable Candidate Profile versions in Firestore, confirmed Search Targets, TXT/PDF Job Posting normalization, revision-aware deduplication, evidence-gated exclusions, four component scores, and stable Fit Score ranking. One production process serves both the API and compiled browser assets.
 
 The canonical product specification is [GitHub Issue #1](https://github.com/jhojin7/career-radar/issues/1).
 
@@ -92,6 +92,7 @@ pnpm build
 Browser
   └── React + Vite + shadcn/ui
         └── Hono HTTP Interface
+              ├── Deterministic Recommendation Module
               ├── Vertex AI Profile Extraction Adapter (Google Gen AI SDK + ADC)
               ├── Local TXT/PDF Job Source + Vertex AI Job Posting Extraction Adapters
               ├── Firestore Onboarding Persistence Adapter
@@ -99,4 +100,4 @@ Browser
               └── Local or Cloud Resume and Job Source Blob Storage Adapters
 ```
 
-The Hono application is constructed with injected Adapters so automated tests exercise onboarding, import, deduplication, revision, counters, and partial failure without calling Vertex AI or Firestore.
+The Hono application is constructed with injected Adapters so automated tests exercise onboarding, import, deduplication, revision, counters, partial failure, and recommendation list/detail behavior without calling Vertex AI or Firestore. The recommendation Module also has table-driven coverage for scoring, exclusions, ambiguity, verdict boundaries, custom weights, ordering, and repeatability.

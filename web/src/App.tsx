@@ -1,4 +1,4 @@
-import { Check, Database, FileText, LoaderCircle, Plus, Radar, RotateCcw, Save, Sparkles, Trash2 } from "lucide-react";
+import { ArrowUpRight, BriefcaseBusiness, CalendarDays, Check, Database, FileText, LoaderCircle, MapPin, Plus, Radar, RotateCcw, Save, Sparkles, Trash2, X } from "lucide-react";
 import { useEffect, useState, type ReactNode } from "react";
 
 import { Badge } from "@/components/ui/badge";
@@ -14,6 +14,7 @@ import type {
   SearchTargetSet,
 } from "../../server/onboarding.js";
 import { DEFAULT_FIT_WEIGHTS, WORK_MODES } from "../../server/onboarding-values.js";
+import type { JobRecommendation } from "../../server/recommendation.js";
 import { activateCandidateProfile, type OnboardingState } from "./onboarding-state.js";
 import { isSupportedResumeMetadata } from "./resume-upload.js";
 
@@ -248,6 +249,7 @@ export function App() {
               onConfirm={confirmTargets}
             />
             {state.searchTargets && <CollectionOverview state={collectionState} />}
+            {state.searchTargets && <RecommendationExplorer />}
           </div>
         )}
       </main>
@@ -303,6 +305,114 @@ function CollectionOverview({ state }: { state: CollectionState }) {
 
 function Metric({ label, value, compact = false }: { label: string; value: number; compact?: boolean }) {
   return <div className={`rounded-xl bg-muted/45 ${compact ? "p-3" : "p-4"}`}><div className="text-xs text-muted-foreground">{label}</div><div className={compact ? "mt-1 text-xl font-semibold" : "mt-1 text-3xl font-semibold"}>{value}</div></div>;
+}
+
+type RecommendationView = "eligible" | "review-required" | "excluded" | "failed";
+type RecommendationListResponse = {
+  view: RecommendationView;
+  counts: { eligible: number; reviewRequired: number; excluded: number; failed: number };
+  recommendations: JobRecommendation[];
+  failedPostings: Array<{ sourceKey: string; message: string }>;
+};
+
+function RecommendationExplorer() {
+  const [view, setView] = useState<RecommendationView>("eligible");
+  const [result, setResult] = useState<RecommendationListResponse | null>(null);
+  const [selected, setSelected] = useState<JobRecommendation | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let active = true;
+    api<RecommendationListResponse>(`/api/recommendations?view=${view}`)
+      .then((next) => { if (active) setResult(next); })
+      .catch((caught: unknown) => { if (active) setLoadError(errorMessage(caught)); });
+    return () => { active = false; };
+  }, [view]);
+
+  const tabs: Array<{ value: RecommendationView; label: string; count: number }> = [
+    { value: "eligible", label: "Eligible", count: result?.counts.eligible ?? 0 },
+    { value: "review-required", label: "Review Required", count: result?.counts.reviewRequired ?? 0 },
+    { value: "excluded", label: "Excluded", count: result?.counts.excluded ?? 0 },
+    { value: "failed", label: "Failed", count: result?.counts.failed ?? 0 },
+  ];
+
+  return (
+    <Section title="Job Recommendations" description="Deterministic Fit Scores and evidence-backed explanations from the active Candidate Profile and Job Pool.">
+      <div className="mb-6 flex gap-2 overflow-x-auto pb-1" aria-label="Recommendation views">
+        {tabs.map((tab) => (
+          <Button key={tab.value} size="sm" variant={view === tab.value ? "default" : "outline"} onClick={() => { setView(tab.value); setSelected(null); setResult(null); setLoadError(null); }}>
+            {tab.label}<span className="rounded-full bg-black/8 px-1.5 py-0.5 text-[11px]">{tab.count}</span>
+          </Button>
+        ))}
+      </div>
+      {loadError && <Notice tone="error">{loadError}</Notice>}
+      {!result && !loadError && <div className="flex items-center gap-2 py-10 text-sm text-muted-foreground"><LoaderCircle className="size-4 animate-spin" />Ranking the Job Pool…</div>}
+      {result && view === "failed" && (
+        <div className="space-y-3">
+          {result.failedPostings.map((failure) => <div className="rounded-2xl border border-rose-200 bg-rose-50 p-4" key={failure.sourceKey}><div className="font-semibold text-rose-900">{failure.sourceKey}</div><p className="mt-1 text-sm text-rose-800">{failure.message}</p></div>)}
+          {result.failedPostings.length === 0 && <EmptyView>There are no failed Job Postings in the latest Collection Run.</EmptyView>}
+        </div>
+      )}
+      {result && view !== "failed" && (
+        <div className="grid gap-4 lg:grid-cols-2">
+          {result.recommendations.map((recommendation) => <RecommendationCard key={recommendation.id} recommendation={recommendation} onOpen={() => setSelected(recommendation)} />)}
+          {result.recommendations.length === 0 && <EmptyView>No Job Postings are in this view.</EmptyView>}
+        </div>
+      )}
+      {selected && <RecommendationDetail recommendation={selected} onClose={() => setSelected(null)} />}
+    </Section>
+  );
+}
+
+function RecommendationCard({ recommendation, onOpen }: { recommendation: JobRecommendation; onOpen: () => void }) {
+  return (
+    <button className="rounded-2xl border border-border bg-background p-5 text-left transition hover:-translate-y-0.5 hover:border-primary/40 hover:shadow-md" onClick={onOpen} type="button">
+      <div className="flex items-start justify-between gap-4">
+        <div><p className="text-sm text-muted-foreground">{recommendation.employer}</p><h3 className="mt-1 text-lg font-semibold">{recommendation.role}</h3></div>
+        <div className="grid size-16 shrink-0 place-items-center rounded-2xl bg-primary text-primary-foreground"><div className="text-center"><div className="text-2xl font-semibold leading-none">{recommendation.fitScore}</div><div className="mt-1 text-[10px] uppercase tracking-wide">Fit</div></div></div>
+      </div>
+      <div className="mt-4 flex flex-wrap gap-x-4 gap-y-2 text-sm text-muted-foreground">
+        <span className="flex items-center gap-1.5"><MapPin className="size-3.5" />{recommendation.locations.join(", ") || "Location unknown"}</span>
+        <span className="flex items-center gap-1.5"><BriefcaseBusiness className="size-3.5" />{recommendation.workModes.join(", ") || "Work mode unknown"}</span>
+        {recommendation.closingAt && <span className="flex items-center gap-1.5"><CalendarDays className="size-3.5" />{new Date(recommendation.closingAt).toLocaleDateString()}</span>}
+      </div>
+      <div className="mt-5 flex items-center justify-between"><RecommendationBadge recommendation={recommendation} /><span className="text-sm font-medium text-primary">View evidence</span></div>
+    </button>
+  );
+}
+
+function RecommendationDetail({ recommendation, onClose }: { recommendation: JobRecommendation; onClose: () => void }) {
+  const scores = [
+    ["Technical fit", recommendation.componentScores.technical],
+    ["Experience fit", recommendation.componentScores.experience],
+    ["Career direction", recommendation.componentScores.careerDirection],
+    ["Work conditions", recommendation.componentScores.workConditions],
+  ] as const;
+  return (
+    <div className="fixed inset-0 z-40 overflow-y-auto bg-black/35 p-3 backdrop-blur-sm sm:p-8" role="dialog" aria-modal="true" aria-label={`${recommendation.role} recommendation details`}>
+      <div className="mx-auto max-w-3xl rounded-3xl bg-card p-5 shadow-2xl sm:p-8">
+        <div className="flex items-start justify-between gap-4"><div><p className="text-sm text-muted-foreground">{recommendation.employer}</p><h2 className="mt-1 text-2xl font-semibold">{recommendation.role}</h2><div className="mt-3"><RecommendationBadge recommendation={recommendation} /></div></div><Button aria-label="Close details" size="icon" variant="ghost" onClick={onClose}><X className="size-5" /></Button></div>
+        <div className="mt-7 grid grid-cols-2 gap-3 sm:grid-cols-4">{scores.map(([label, score]) => <Metric compact key={label} label={label} value={score} />)}</div>
+        <div className="mt-7 grid gap-6 sm:grid-cols-2"><InsightList title="Strengths" values={recommendation.strengths} /><InsightList title="Gaps & uncertainties" values={recommendation.gaps} /></div>
+        {recommendation.disqualifyingConditions.length > 0 && <div className="mt-7"><h3 className="font-semibold">Disqualifying Conditions</h3><div className="mt-3 space-y-2">{recommendation.disqualifyingConditions.map((condition) => <div className="rounded-xl bg-rose-50 p-3 text-sm text-rose-900" key={condition.conditionId}><div className="font-medium">{condition.description}</div><div className="mt-1 text-rose-700">Evidence: {condition.evidence ?? "no evidence"}</div></div>)}</div></div>}
+        <div className="mt-7"><h3 className="font-semibold">Job Posting evidence</h3><div className="mt-3 space-y-2">{recommendation.evidence.map((item, index) => <blockquote className="rounded-xl border-l-4 border-primary/30 bg-muted/35 p-3 text-sm" key={`${item.field}-${index}`}><div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{item.field}</div><p className="mt-1">“{item.quote}”</p></blockquote>)}{recommendation.evidence.length === 0 && <p className="rounded-xl bg-muted/35 p-3 text-sm text-muted-foreground">no evidence</p>}</div></div>
+        {recommendation.originalUrl && <a className="mt-7 inline-flex items-center gap-2 text-sm font-semibold text-primary hover:underline" href={recommendation.originalUrl} rel="noreferrer" target="_blank">Open original Job Posting <ArrowUpRight className="size-4" /></a>}
+      </div>
+    </div>
+  );
+}
+
+function InsightList({ title, values }: { title: string; values: JobRecommendation["strengths"] }) {
+  return <div><h3 className="font-semibold">{title}</h3><ul className="mt-3 space-y-3">{values.map((value, index) => <li className="rounded-xl bg-muted/35 p-3 text-sm" key={index}><p>{value.text}</p><p className="mt-1.5 text-xs text-muted-foreground">Evidence: {value.evidence ?? "no evidence"}</p></li>)}</ul></div>;
+}
+
+function RecommendationBadge({ recommendation }: { recommendation: JobRecommendation }) {
+  const label = recommendation.status === "eligible" ? recommendation.verdict : recommendation.status === "excluded" ? "Excluded" : "Review Required";
+  return <Badge variant={recommendation.status === "eligible" && recommendation.fitScore >= 60 ? "success" : "outline"}>{label}</Badge>;
+}
+
+function EmptyView({ children }: { children: ReactNode }) {
+  return <div className="rounded-2xl border border-dashed border-border p-8 text-center text-sm text-muted-foreground lg:col-span-2">{children}</div>;
 }
 
 function ProfileEditor({ draft, weightTotal, busy, updateProfile, saveDraft, confirmProfile }: {

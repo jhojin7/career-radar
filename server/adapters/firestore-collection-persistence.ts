@@ -46,6 +46,11 @@ export function createFirestoreCollectionPersistence(options: { projectId?: stri
       });
     },
 
+    async getJobPostings() {
+      const snapshot = await firestore.collection("jobPool").get();
+      return snapshot.docs.map((document) => JobPostingSchema.parse(document.data()));
+    },
+
     async findBySourceIdentity(sourceAdapter, sourceIdentity) {
       return readPostingFromLookup(firestore, "jobSourceIdentities", lookupId(`${sourceAdapter}:${sourceIdentity}`));
     },

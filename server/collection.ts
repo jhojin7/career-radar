@@ -80,6 +80,7 @@ export const JobPoolSummarySchema = z.object({
 });
 
 export type JobPostingExtraction = z.infer<typeof JobPostingExtractionSchema>;
+export type JobPostingEvidence = z.infer<typeof JobPostingEvidenceSchema>;
 export type JobPosting = z.infer<typeof JobPostingSchema>;
 export type CollectionRun = z.infer<typeof CollectionRunSchema>;
 export type CollectionRunCounts = z.infer<typeof CollectionRunCountsSchema>;
@@ -130,6 +131,7 @@ export type CollectionPersistence = {
   updateRun: (run: CollectionRun) => Promise<void>;
   getLatestRun: () => Promise<CollectionRun | null>;
   getJobPoolSummary: () => Promise<JobPoolSummary>;
+  getJobPostings: () => Promise<JobPosting[]>;
   findBySourceIdentity: (sourceAdapter: string, sourceIdentity: string) => Promise<JobPosting | null>;
   findByCanonicalUrl: (canonicalUrl: string) => Promise<JobPosting | null>;
   findByContentHash: (contentHash: string) => Promise<JobPosting | null>;
