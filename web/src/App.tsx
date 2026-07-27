@@ -7,6 +7,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import type { CollectionRun, JobPoolSummary } from "../../server/collection.js";
 import type {
   CandidateProfile,
+  FitWeights,
   ProfileData,
   ProfileDraft,
   SearchTargetDraft,
@@ -249,7 +250,25 @@ export function App() {
               onConfirm={confirmTargets}
             />
             {state.searchTargets && <CollectionOverview state={collectionState} />}
-            {state.searchTargets && <RecommendationExplorer />}
+            {state.searchTargets && (
+              <RecommendationExplorer
+                key={state.candidateProfile.id}
+                candidateProfile={state.candidateProfile}
+                onSaved={(candidateProfile) => {
+                  setState((current) => ({
+                    ...current,
+                    candidateProfile,
+                    searchTargetDraft: current.searchTargetDraft
+                      ? { ...current.searchTargetDraft, profileId: candidateProfile.id }
+                      : null,
+                    searchTargets: current.searchTargets
+                      ? { ...current.searchTargets, profileId: candidateProfile.id }
+                      : null,
+                  }));
+                  setMessage(`Candidate Profile v${candidateProfile.version} is active with the confirmed Fit Weights.`);
+                }}
+              />
+            )}
           </div>
         )}
       </main>
@@ -310,24 +329,71 @@ function Metric({ label, value, compact = false }: { label: string; value: numbe
 type RecommendationView = "eligible" | "review-required" | "excluded" | "failed";
 type RecommendationListResponse = {
   view: RecommendationView;
+  fitWeights: FitWeights;
+  profileVersion: number;
   counts: { eligible: number; reviewRequired: number; excluded: number; failed: number };
   recommendations: JobRecommendation[];
   failedPostings: Array<{ sourceKey: string; message: string }>;
 };
 
-function RecommendationExplorer() {
+function RecommendationExplorer({ candidateProfile, onSaved }: {
+  candidateProfile: CandidateProfile;
+  onSaved: (candidateProfile: CandidateProfile) => void;
+}) {
   const [view, setView] = useState<RecommendationView>("eligible");
   const [result, setResult] = useState<RecommendationListResponse | null>(null);
   const [selected, setSelected] = useState<JobRecommendation | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [fitWeights, setFitWeights] = useState<FitWeights>(() => ({ ...candidateProfile.profile.fitWeights }));
+  const [saving, setSaving] = useState(false);
+  const weightTotal = Object.values(fitWeights).reduce((total, value) => total + value, 0);
+  const validWeights = Object.values(fitWeights).every((value) => Number.isInteger(value) && value >= 0) && weightTotal === 100;
+  const savedWeights = candidateProfile.profile.fitWeights;
+  const hasChanges = !sameFitWeights(fitWeights, savedWeights);
+  const previewing = validWeights && hasChanges && (
+    !result || result.view !== view || !sameFitWeights(result.fitWeights, fitWeights)
+  );
 
   useEffect(() => {
+    if (!validWeights) return;
     let active = true;
-    api<RecommendationListResponse>(`/api/recommendations?view=${view}`)
-      .then((next) => { if (active) setResult(next); })
+    const request = hasChanges
+      ? api<RecommendationListResponse>("/api/recommendations/preview", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ view, fitWeights }),
+        })
+      : api<RecommendationListResponse>(`/api/recommendations?view=${view}`);
+    request
+      .then((next) => {
+        if (!active) return;
+        setResult(next);
+        setLoadError(null);
+        setSelected((current) => current
+          ? next.recommendations.find((recommendation) => recommendation.id === current.id) ?? null
+          : null);
+      })
       .catch((caught: unknown) => { if (active) setLoadError(errorMessage(caught)); });
     return () => { active = false; };
-  }, [view]);
+  }, [candidateProfile.id, fitWeights, hasChanges, validWeights, view]);
+
+  async function saveFitWeights() {
+    if (!validWeights || !hasChanges) return;
+    setSaving(true);
+    setLoadError(null);
+    try {
+      const saved = await api<{ candidateProfile: CandidateProfile }>("/api/candidate-profile/fit-weights", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ fitWeights }),
+      });
+      onSaved(saved.candidateProfile);
+    } catch (caught) {
+      setLoadError(errorMessage(caught));
+    } finally {
+      setSaving(false);
+    }
+  }
 
   const tabs: Array<{ value: RecommendationView; label: string; count: number }> = [
     { value: "eligible", label: "Eligible", count: result?.counts.eligible ?? 0 },
@@ -338,6 +404,27 @@ function RecommendationExplorer() {
 
   return (
     <Section title="Job Recommendations" description="Deterministic Fit Scores and evidence-backed explanations from the active Candidate Profile and Job Pool.">
+      <div className="mb-6 rounded-2xl border border-border bg-muted/20 p-4 sm:p-5">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div><h3 className="font-semibold">Tune Fit Weights</h3><p className="mt-1 text-sm text-muted-foreground">Valid edits preview from stored component scores. They do not start a Collection Run or call Gemini.</p></div>
+          <Badge variant="outline">Candidate Profile v{candidateProfile.version}</Badge>
+        </div>
+        <div className="mt-5 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          {(Object.keys(fitWeights) as Array<keyof FitWeights>).map((key) => (
+            <Field key={key} label={weightLabel(key)}>
+              <div className="relative"><input className={`${fieldClass} pr-8`} type="number" min="0" max="100" step="1" value={fitWeights[key]} onChange={(event) => setFitWeights({ ...fitWeights, [key]: Number(event.target.value) })} /><span className="absolute right-3 top-2.5 text-sm text-muted-foreground">%</span></div>
+            </Field>
+          ))}
+        </div>
+        <div className="mt-5 flex flex-col gap-3 border-t border-border pt-4 sm:flex-row sm:items-center sm:justify-between">
+          <div><span className="text-sm text-muted-foreground">Current total</span><div className={`text-2xl font-semibold ${validWeights ? "text-emerald-700" : "text-rose-700"}`}>{weightTotal}%</div>{!validWeights && <p className="mt-1 text-xs text-rose-700">Use non-negative whole percentages totaling 100%.</p>}</div>
+          <div className="flex flex-wrap gap-2">
+            <Button variant="outline" onClick={() => setFitWeights({ ...DEFAULT_FIT_WEIGHTS })}><RotateCcw className="size-4" />Restore 40/25/25/10</Button>
+            <Button disabled={!validWeights || !hasChanges || saving} onClick={saveFitWeights}>{saving ? <LoaderCircle className="size-4 animate-spin" /> : <Save className="size-4" />}Save Fit Weights</Button>
+          </div>
+        </div>
+        {validWeights && hasChanges && <p className="mt-4 text-sm text-primary" role="status">{previewing ? "Updating preview…" : "Previewing unsaved Fit Weights."}</p>}
+      </div>
       <div className="mb-6 flex gap-2 overflow-x-auto pb-1" aria-label="Recommendation views">
         {tabs.map((tab) => (
           <Button key={tab.value} size="sm" variant={view === tab.value ? "default" : "outline"} onClick={() => { setView(tab.value); setSelected(null); setResult(null); setLoadError(null); }}>
@@ -603,6 +690,7 @@ function CenteredStatus({ icon, label }: { icon: ReactNode; label: string }) { r
 function replaceAt<T>(values: T[], index: number, value: T): T[] { return values.map((current, currentIndex) => currentIndex === index ? value : current); }
 function splitList(value: string): string[] { return value.split(",").map((item) => item.trim()).filter(Boolean); }
 function weightLabel(key: keyof ProfileData["fitWeights"]): string { return ({ technical: "Technical fit", experience: "Experience fit", careerDirection: "Career direction", workConditions: "Work conditions" })[key]; }
+function sameFitWeights(left: FitWeights, right: FitWeights): boolean { return (Object.keys(left) as Array<keyof FitWeights>).every((key) => left[key] === right[key]); }
 function errorMessage(error: unknown): string { return error instanceof Error ? error.message : "Something went wrong."; }
 
 function uploadResumeRequest(form: FormData, onProgress: (progress: number) => void): Promise<{ draft: ProfileDraft }> {

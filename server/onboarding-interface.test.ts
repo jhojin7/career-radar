@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import { createApp, type Logger } from "./app.js";
 import {
   type CandidateProfile,
+  type FitWeights,
   type OnboardingPersistence,
   type ProfileData,
   type ProfileDraft,
@@ -89,6 +90,31 @@ class FakePersistence implements OnboardingPersistence {
   }
 
   async getActiveProfile() {
+    return this.activeProfile;
+  }
+
+  async saveFitWeights(
+    activeProfileId: string,
+    fitWeights: FitWeights,
+    confirmedAt: string,
+    candidateProfileId: string,
+  ) {
+    if (!this.activeProfile || this.activeProfile.id !== activeProfileId) {
+      throw new Error("Candidate Profile is no longer active");
+    }
+    this.activeProfile = {
+      ...structuredClone(this.activeProfile),
+      id: candidateProfileId,
+      version: this.activeProfile.version + 1,
+      profile: { ...structuredClone(this.activeProfile.profile), fitWeights },
+      confirmedAt,
+    };
+    if (this.searchTargetDraft?.profileId === activeProfileId) {
+      this.searchTargetDraft = { ...this.searchTargetDraft, profileId: candidateProfileId };
+    }
+    if (this.searchTargets?.profileId === activeProfileId) {
+      this.searchTargets = { ...this.searchTargets, profileId: candidateProfileId };
+    }
     return this.activeProfile;
   }
 

@@ -6,6 +6,7 @@ import {
   InvalidFitWeightsError,
   calculateFitScore,
   rankRecommendations,
+  recalculateRecommendations,
   recommendJob,
   verdictForScore,
 } from "./recommendation.js";
@@ -213,6 +214,27 @@ describe("deterministic recommendation Module", () => {
     const candidate = profile();
     const results = rankRecommendations(candidate, [posting({ id: "posting-b" }), posting({ id: "posting-a" })]);
     expect(results.map((result) => result.postingId)).toEqual(["posting-a", "posting-b"]);
+  });
+
+  it("recalculates Fit Scores, verdicts, and order from stored component scores with custom Fit Weights", () => {
+    const technicalFirst = recommendJob(profile(), posting({ id: "technical", requiredSkills: ["TypeScript"], locations: ["Busan"], workModes: ["remote"] }));
+    const conditionsFirst = recommendJob(profile(), posting({ id: "conditions", requiredSkills: ["Rust"], locations: ["Seoul"], workModes: ["hybrid"] }));
+    const original = [technicalFirst, conditionsFirst];
+
+    const recalculated = recalculateRecommendations(
+      original,
+      { technical: 0, experience: 0, careerDirection: 0, workConditions: 100 },
+    );
+
+    expect(recalculated.map((recommendation) => recommendation.postingId)).toEqual(["conditions", "technical"]);
+    expect(recalculated.map((recommendation) => recommendation.fitScore)).toEqual([100, 0]);
+    expect(recalculated.map((recommendation) => recommendation.verdict)).toEqual(["Strong Fit", "Low Fit"]);
+    expect(recalculated.map((recommendation) => recommendation.componentScores)).toEqual([
+      conditionsFirst.componentScores,
+      technicalFirst.componentScores,
+    ]);
+    expect(recalculated.map((recommendation) => recommendation.status)).toEqual(["eligible", "eligible"]);
+    expect(original).toEqual([technicalFirst, conditionsFirst]);
   });
 
   it("is repeatable for identical inputs", () => {

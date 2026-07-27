@@ -168,6 +168,12 @@ export type OnboardingPersistence = {
   getDraft: () => Promise<ProfileDraft | null>;
   updateDraft: (draftId: string, profile: ProfileData, updatedAt: string) => Promise<ProfileDraft>;
   confirmDraft: (draftId: string, confirmedAt: string, candidateProfileId: string) => Promise<CandidateProfile>;
+  saveFitWeights: (
+    activeProfileId: string,
+    fitWeights: FitWeights,
+    confirmedAt: string,
+    candidateProfileId: string,
+  ) => Promise<CandidateProfile>;
   getActiveProfile: () => Promise<CandidateProfile | null>;
   saveSearchTargetDraft: (draft: SearchTargetDraftSet) => Promise<void>;
   getSearchTargetDraft: (profileId: string) => Promise<SearchTargetDraftSet | null>;

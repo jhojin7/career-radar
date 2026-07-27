@@ -6,6 +6,7 @@ import {
   SearchTargetDraftSetSchema,
   SearchTargetSetSchema,
   type CandidateProfile,
+  type FitWeights,
   type OnboardingPersistence,
   type ProfileData,
   type ProfileDraft,
@@ -89,6 +90,49 @@ export function createFirestoreOnboardingPersistence(options: { projectId?: stri
       });
     },
 
+    async saveFitWeights(activeProfileId, fitWeights, confirmedAt, candidateProfileId) {
+      return firestore.runTransaction(async (transaction) => {
+        const sourceProfileRef = firestore.doc(`candidateProfiles/${activeProfileId}`);
+        const sourceTargetDraftRef = searchTargetDraftRef(activeProfileId);
+        const sourceTargetsRef = searchTargetsRef(activeProfileId);
+        const [stateSnapshot, profileSnapshot, targetDraftSnapshot, targetsSnapshot] = await Promise.all([
+          transaction.get(stateRef),
+          transaction.get(sourceProfileRef),
+          transaction.get(sourceTargetDraftRef),
+          transaction.get(sourceTargetsRef),
+        ]);
+        const state = (stateSnapshot.data() ?? {}) as OnboardingState;
+        const sourceProfile = profileSnapshot.exists ? CandidateProfileSchema.parse(profileSnapshot.data()) : null;
+        if (!sourceProfile || state.activeProfileId !== activeProfileId) {
+          throw new Error("Candidate Profile is no longer active.");
+        }
+
+        const candidateProfile = CandidateProfileSchema.parse({
+          ...sourceProfile,
+          id: candidateProfileId,
+          version: (state.activeProfileVersion ?? sourceProfile.version) + 1,
+          profile: { ...structuredClone(sourceProfile.profile), fitWeights },
+          confirmedAt,
+        });
+        transaction.create(firestore.doc(`candidateProfiles/${candidateProfile.id}`), candidateProfile);
+        transaction.set(
+          stateRef,
+          { activeProfileId: candidateProfile.id, activeProfileVersion: candidateProfile.version },
+          { merge: true },
+        );
+
+        if (targetDraftSnapshot.exists) {
+          const targetDraft = SearchTargetDraftSetSchema.parse(targetDraftSnapshot.data());
+          transaction.set(searchTargetDraftRef(candidateProfile.id), { ...targetDraft, profileId: candidateProfile.id });
+        }
+        if (targetsSnapshot.exists) {
+          const targets = SearchTargetSetSchema.parse(targetsSnapshot.data());
+          transaction.set(searchTargetsRef(candidateProfile.id), { ...targets, profileId: candidateProfile.id });
+        }
+        return candidateProfile;
+      });
+    },
+
     async getActiveProfile() {
       const state = await stateRef.get();
       const profileId = state.data()?.activeProfileId;
@@ -139,4 +183,4 @@ async function readParsed<T>(
   return snapshot.exists ? parse(snapshot.data()) : null;
 }
 
-export type { CandidateProfile, ProfileData, ProfileDraft, SearchTargetDraftSet, SearchTargetSet };
+export type { CandidateProfile, FitWeights, ProfileData, ProfileDraft, SearchTargetDraftSet, SearchTargetSet };

@@ -2,7 +2,7 @@
 
 Career Radar is a locally runnable web application that turns a confirmed Candidate Profile into evidence-backed, deterministic Job Recommendations. Production persistence is designed for Firestore and Cloud Storage.
 
-The current slice delivers PDF resume onboarding, local Job Pool collection, and deterministic Job Recommendations: a Hono HTTP Interface, a responsive React/Vite UI built with shadcn/ui and Tailwind CSS, Vertex AI Gemini extraction, immutable Candidate Profile versions in Firestore, confirmed Search Targets, TXT/PDF Job Posting normalization, revision-aware deduplication, evidence-gated exclusions, four component scores, and stable Fit Score ranking. One production process serves both the API and compiled browser assets.
+The current slice delivers PDF resume onboarding, local Job Pool collection, and deterministic Job Recommendations: a Hono HTTP Interface, a responsive React/Vite UI built with shadcn/ui and Tailwind CSS, Vertex AI Gemini extraction, immutable Candidate Profile versions in Firestore, confirmed Search Targets, TXT/PDF Job Posting normalization, revision-aware deduplication, evidence-gated exclusions, four component scores, stable Fit Score ranking, and previewable custom Fit Weights that can be saved as a new Candidate Profile version. One production process serves both the API and compiled browser assets.
 
 The canonical product specification is [GitHub Issue #1](https://github.com/jhojin7/career-radar/issues/1).
 

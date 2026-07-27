@@ -109,6 +109,23 @@ export function rankRecommendations(
     .sort(compareRecommendations);
 }
 
+export function recalculateRecommendations(
+  recommendations: readonly JobRecommendation[],
+  fitWeights: FitWeights,
+): JobRecommendation[] {
+  validateFitWeights(fitWeights);
+  return recommendations
+    .map((recommendation) => {
+      const fitScore = calculateFitScore(recommendation.componentScores, fitWeights);
+      return JobRecommendationSchema.parse({
+        ...recommendation,
+        fitScore,
+        verdict: verdictForScore(fitScore),
+      });
+    })
+    .sort(compareRecommendations);
+}
+
 export function compareRecommendations(left: JobRecommendation, right: JobRecommendation): number {
   const statusOrder: Record<RecommendationStatus, number> = {
     eligible: 0,

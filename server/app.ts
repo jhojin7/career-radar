@@ -13,6 +13,7 @@ import {
 import {
   CandidateProfileSchema,
   DEFAULT_FIT_WEIGHTS,
+  FitWeightsSchema,
   ProfileDataSchema,
   ProfileDraftSchema,
   SearchTargetDraftSetSchema,
@@ -27,6 +28,7 @@ import {
   InvalidFitWeightsError,
   RecommendationStatusSchema,
   rankRecommendations,
+  recalculateRecommendations,
 } from "./recommendation.js";
 
 const HealthResponse = z.object({
@@ -432,6 +434,8 @@ export function createApp({
         : all.filter((recommendation) => recommendation.status === RecommendationStatusSchema.parse(view.data));
       return context.json({
         view: view.data,
+        fitWeights: candidateProfile.profile.fitWeights,
+        profileVersion: candidateProfile.version,
         counts,
         recommendations,
         failedPostings: view.data === "failed" ? latestRun?.errors ?? [] : [],
@@ -445,6 +449,102 @@ export function createApp({
       }
       throw error;
     }
+  });
+
+  app.post("/api/recommendations/preview", async (context) => {
+    if (!collectionPersistence || !onboardingPersistence) {
+      return context.json(
+        { error: { code: "recommendations_unavailable", message: "Job Recommendations are not configured." } },
+        503,
+      );
+    }
+    const body = await context.req.json().catch(() => null);
+    const parsed = z.object({
+      fitWeights: FitWeightsSchema,
+      view: z.enum(["eligible", "review-required", "excluded", "failed"]).default("eligible"),
+    }).safeParse(body);
+    const total = fitWeightsTotalFromRequest(body);
+    if (!parsed.success || total !== 100) {
+      return context.json(
+        {
+          error: {
+            code: "invalid_fit_weights",
+            message: "Fit Weights must be non-negative whole percentages totaling 100%.",
+            total,
+          },
+        },
+        422,
+      );
+    }
+    const candidateProfile = await onboardingPersistence.getActiveProfile();
+    if (!candidateProfile) {
+      return context.json(
+        { error: { code: "active_profile_required", message: "Confirm a Candidate Profile before previewing Fit Weights." } },
+        409,
+      );
+    }
+
+    const [postings, latestRun] = await Promise.all([
+      collectionPersistence.getJobPostings(),
+      collectionPersistence.getLatestRun(),
+    ]);
+    const currentRecommendations = rankRecommendations(candidateProfile, postings);
+    const all = recalculateRecommendations(currentRecommendations, parsed.data.fitWeights);
+    const counts = {
+      eligible: all.filter((recommendation) => recommendation.status === "eligible").length,
+      reviewRequired: all.filter((recommendation) => recommendation.status === "review-required").length,
+      excluded: all.filter((recommendation) => recommendation.status === "excluded").length,
+      failed: latestRun?.errors.length ?? 0,
+    };
+    const recommendations = parsed.data.view === "failed"
+      ? []
+      : all.filter((recommendation) => recommendation.status === RecommendationStatusSchema.parse(parsed.data.view));
+    return context.json({
+      view: parsed.data.view,
+      fitWeights: parsed.data.fitWeights,
+      profileVersion: candidateProfile.version,
+      counts,
+      recommendations,
+      failedPostings: parsed.data.view === "failed" ? latestRun?.errors ?? [] : [],
+    });
+  });
+
+  app.post("/api/candidate-profile/fit-weights", async (context) => {
+    if (!onboardingPersistence) {
+      return context.json(
+        { error: { code: "onboarding_unavailable", message: "Candidate Profile persistence is not configured." } },
+        503,
+      );
+    }
+    const body = await context.req.json().catch(() => null);
+    const parsed = z.object({ fitWeights: FitWeightsSchema }).safeParse(body);
+    const total = fitWeightsTotalFromRequest(body);
+    if (!parsed.success || total !== 100) {
+      return context.json(
+        {
+          error: {
+            code: "invalid_fit_weights",
+            message: "Fit Weights must be non-negative whole percentages totaling 100%.",
+            total,
+          },
+        },
+        422,
+      );
+    }
+    const activeProfile = await onboardingPersistence.getActiveProfile();
+    if (!activeProfile) {
+      return context.json(
+        { error: { code: "active_profile_required", message: "Confirm a Candidate Profile before saving Fit Weights." } },
+        409,
+      );
+    }
+    const candidateProfile = CandidateProfileSchema.parse(await onboardingPersistence.saveFitWeights(
+      activeProfile.id,
+      parsed.data.fitWeights,
+      clock().toISOString(),
+      idGenerator(),
+    ));
+    return context.json({ candidateProfile }, 201);
   });
 
   app.get("/api/recommendations/:recommendationId", async (context) => {
@@ -535,4 +635,15 @@ export function createApp({
   }
 
   return app;
+}
+
+function fitWeightsTotalFromRequest(body: unknown): number | null {
+  if (!body || typeof body !== "object" || !("fitWeights" in body)) return null;
+  const fitWeights = body.fitWeights;
+  if (!fitWeights || typeof fitWeights !== "object") return null;
+  const values = ["technical", "experience", "careerDirection", "workConditions"]
+    .map((key) => key in fitWeights ? fitWeights[key as keyof typeof fitWeights] : undefined);
+  return values.every((value) => typeof value === "number")
+    ? values.reduce<number>((total, value) => total + (value as number), 0)
+    : null;
 }
