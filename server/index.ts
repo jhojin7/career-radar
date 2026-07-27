@@ -1,8 +1,6 @@
 import { fileURLToPath } from "node:url";
-import { resolve } from "node:path";
 
 import { serve } from "@hono/node-server";
-import { z } from "zod";
 
 import { createCloudResumeBlobStorage } from "./adapters/cloud-resume-blob-storage.js";
 import { createCloudJobSourceBlobStorage } from "./adapters/cloud-job-source-blob-storage.js";
@@ -14,57 +12,51 @@ import { createLocalResumeBlobStorage } from "./adapters/local-resume-blob-stora
 import { createVertexAiJobExtraction } from "./adapters/vertex-ai-job-extraction.js";
 import { createVertexAiProfileExtraction } from "./adapters/vertex-ai-profile-extraction.js";
 import { createApp, type Logger } from "./app.js";
+import { loadRuntimeConfig } from "./config.js";
 import { createConfiguredJobSource } from "./configured-job-source.js";
 
-const port = z.coerce.number().int().positive().parse(process.env.PORT ?? 3000);
+const config = loadRuntimeConfig();
 const webRoot = fileURLToPath(new URL("../web/", import.meta.url));
 const dataRoot = fileURLToPath(new URL("../data/", import.meta.url));
-const project = process.env.GOOGLE_CLOUD_PROJECT ?? process.env.GCLOUD_PROJECT;
-const resumeBucket = process.env.RESUME_BUCKET;
-const jobSourceBucket = process.env.JOB_SOURCE_BUCKET ?? resumeBucket;
-const corpusDirectory = resolve(process.env.JOB_CORPUS_DIR ?? "data/job-postings");
-const requiresCloudStorage = process.env.NODE_ENV === "production" || Boolean(process.env.K_SERVICE);
-
-if (requiresCloudStorage && !resumeBucket) {
-  throw new Error("RESUME_BUCKET is required in production so source PDFs use durable Cloud Storage.");
-}
 
 const logger: Logger = {
   info: (event) => console.info(JSON.stringify(event)),
 };
-const firestoreProjectId = process.env.FIRESTORE_PROJECT_ID ?? project ??
-  (process.env.FIRESTORE_EMULATOR_HOST ? "career-radar-local" : undefined);
 
 const app = createApp({
   logger,
+  auth: config.auth,
   webAssets: createFileWebAssets(webRoot),
-  blobStorage: resumeBucket
-    ? createCloudResumeBlobStorage({ bucketName: resumeBucket, projectId: project })
+  blobStorage: config.storage.resumeBucket
+    ? createCloudResumeBlobStorage({ bucketName: config.storage.resumeBucket, projectId: config.projectId })
     : createLocalResumeBlobStorage(dataRoot),
-  onboardingPersistence: createFirestoreOnboardingPersistence({ projectId: firestoreProjectId }),
+  onboardingPersistence: createFirestoreOnboardingPersistence({ projectId: config.firestoreProjectId }),
   profileExtraction: createVertexAiProfileExtraction({
-    project,
-    location: process.env.GOOGLE_CLOUD_LOCATION,
-    model: process.env.GEMINI_MODEL,
+    project: config.projectId,
+    location: config.location,
+    model: config.model,
+    profilePromptVersion: config.prompts.profile,
+    searchTargetPromptVersion: config.prompts.searchTarget,
   }),
-  jobSource: createConfiguredJobSource(corpusDirectory),
+  jobSource: createConfiguredJobSource(config.corpusDirectory),
   jobPostingExtraction: createVertexAiJobExtraction({
-    project,
-    location: process.env.GOOGLE_CLOUD_LOCATION,
-    model: process.env.GEMINI_MODEL,
+    project: config.projectId,
+    location: config.location,
+    model: config.model,
+    promptVersion: config.prompts.jobPosting,
   }),
-  collectionPersistence: createFirestoreCollectionPersistence({ projectId: firestoreProjectId }),
-  jobSourceBlobStorage: jobSourceBucket
-    ? createCloudJobSourceBlobStorage({ bucketName: jobSourceBucket, projectId: project })
+  collectionPersistence: createFirestoreCollectionPersistence({ projectId: config.firestoreProjectId }),
+  jobSourceBlobStorage: config.storage.jobSourceBucket
+    ? createCloudJobSourceBlobStorage({ bucketName: config.storage.jobSourceBucket, projectId: config.projectId })
     : createLocalJobSourceBlobStorage(dataRoot),
 });
 
 const server = serve({
   fetch: app.fetch,
-  port,
+  port: config.port,
 });
 
-console.info(`Career Radar listening on http://localhost:${port}`);
+console.info(`Career Radar listening on http://localhost:${config.port}`);
 
 for (const signal of ["SIGINT", "SIGTERM"] as const) {
   process.on(signal, () => {

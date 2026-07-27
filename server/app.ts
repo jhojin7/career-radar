@@ -1,4 +1,7 @@
+import { createHash, timingSafeEqual } from "node:crypto";
+
 import { Hono } from "hono";
+import { deleteCookie, getSignedCookie, setSignedCookie } from "hono/cookie";
 import { z } from "zod";
 
 import {
@@ -34,6 +37,14 @@ import {
 const HealthResponse = z.object({
   status: z.literal("ok"),
 });
+const SESSION_COOKIE = "career_radar_session";
+const SessionCredentialsSchema = z.object({ password: z.string() });
+
+export type SessionAuth = {
+  sharedPassword: string;
+  cookieSigningSecret: string;
+  sessionTtlSeconds: number;
+};
 
 export type Logger = {
   info: (event: {
@@ -46,6 +57,7 @@ export type Logger = {
 
 export type AppDependencies = {
   logger: Logger;
+  auth?: SessionAuth;
   webAssets?: WebAssets;
   blobStorage?: ResumeBlobStorage;
   profileExtraction?: ProfileExtraction;
@@ -64,6 +76,7 @@ export type WebAssets = {
 
 export function createApp({
   logger,
+  auth,
   webAssets,
   blobStorage,
   profileExtraction,
@@ -92,6 +105,52 @@ export function createApp({
 
   app.get("/api/healthz", (context) => {
     return context.json(HealthResponse.parse({ status: "ok" }));
+  });
+
+  app.get("/api/session", async (context) => {
+    return context.json({
+      authenticationRequired: Boolean(auth),
+      authenticated: auth ? await hasValidSession(context, auth, clock) : true,
+    });
+  });
+
+  app.post("/api/session", async (context) => {
+    if (!auth) {
+      return context.json({ authenticationRequired: false, authenticated: true });
+    }
+    const credentials = SessionCredentialsSchema.safeParse(await context.req.json().catch(() => null));
+    if (!credentials.success || !passwordsMatch(credentials.data.password, auth.sharedPassword)) {
+      return context.json(
+        { error: { code: "invalid_credentials", message: "The shared password is incorrect." } },
+        401,
+      );
+    }
+
+    const expiresAt = Math.floor(clock().getTime() / 1_000) + auth.sessionTtlSeconds;
+    await setSignedCookie(context, SESSION_COOKIE, String(expiresAt), auth.cookieSigningSecret, {
+      httpOnly: true,
+      secure: true,
+      sameSite: "Strict",
+      path: "/",
+      maxAge: auth.sessionTtlSeconds,
+    });
+    return context.json({ authenticationRequired: true, authenticated: true });
+  });
+
+  app.delete("/api/session", (context) => {
+    deleteCookie(context, SESSION_COOKIE, { path: "/", secure: true });
+    return context.body(null, 204);
+  });
+
+  app.use("/api/*", async (context, next) => {
+    if (!auth || await hasValidSession(context, auth, clock)) {
+      await next();
+      return;
+    }
+    return context.json(
+      { error: { code: "authentication_required", message: "Enter the shared password to continue." } },
+      401,
+    );
   });
 
   app.get("/api/onboarding/state", async (context) => {
@@ -646,4 +705,19 @@ function fitWeightsTotalFromRequest(body: unknown): number | null {
   return values.every((value) => typeof value === "number")
     ? values.reduce<number>((total, value) => total + (value as number), 0)
     : null;
+}
+
+async function hasValidSession(
+  context: Parameters<typeof getSignedCookie>[0],
+  auth: SessionAuth,
+  clock: () => Date,
+): Promise<boolean> {
+  const expiresAt = Number(await getSignedCookie(context, auth.cookieSigningSecret, SESSION_COOKIE));
+  return Number.isSafeInteger(expiresAt) && expiresAt > Math.floor(clock().getTime() / 1_000);
+}
+
+function passwordsMatch(received: string, expected: string): boolean {
+  const receivedDigest = createHash("sha256").update(received).digest();
+  const expectedDigest = createHash("sha256").update(expected).digest();
+  return timingSafeEqual(receivedDigest, expectedDigest);
 }

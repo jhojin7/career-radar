@@ -3,18 +3,18 @@ import { z } from "zod";
 
 import { JobPostingExtractionSchema, type JobPostingExtractionAdapter } from "../collection.js";
 
-const PROMPT_VERSION = "job-posting-v1";
-
 type VertexJobExtractionOptions = {
   project?: string;
   location?: string;
   model?: string;
+  promptVersion?: string;
 };
 
 export function createVertexAiJobExtraction({
   project,
   location = "global",
   model = "gemini-2.5-flash",
+  promptVersion = "job-posting-v1",
 }: VertexJobExtractionOptions): JobPostingExtractionAdapter {
   let ai: GoogleGenAI | undefined;
   const client = () => {
@@ -53,7 +53,7 @@ export function createVertexAiJobExtraction({
       return {
         posting: JobPostingExtractionSchema.parse(JSON.parse(response.text)),
         model: response.modelVersion ?? model,
-        promptVersion: PROMPT_VERSION,
+        promptVersion,
       };
     },
   };

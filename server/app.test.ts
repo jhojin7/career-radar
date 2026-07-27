@@ -39,6 +39,62 @@ describe("Career Radar HTTP interface", () => {
     await expect(response.text()).resolves.toBe("<main>Career Radar</main>");
   });
 
+  it("keeps local application operations available without authentication", async () => {
+    const app = createApp({ logger: silentLogger });
+
+    const [sessionResponse, stateResponse] = await Promise.all([
+      app.request("/api/session"),
+      app.request("/api/onboarding/state"),
+    ]);
+
+    await expect(sessionResponse.json()).resolves.toEqual({
+      authenticationRequired: false,
+      authenticated: true,
+    });
+    expect(stateResponse.status).toBe(200);
+  });
+
+  it("protects deployed operations with a signed secure session cookie", async () => {
+    const app = createApp({
+      logger: silentLogger,
+      auth: {
+        sharedPassword: "demo-password",
+        cookieSigningSecret: "01234567890123456789012345678901",
+        sessionTtlSeconds: 3_600,
+      },
+    });
+
+    const healthResponse = await app.request("/api/healthz");
+    const anonymousResponse = await app.request("/api/onboarding/state");
+    const wrongPasswordResponse = await app.request("/api/session", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ password: "wrong" }),
+    });
+    const loginResponse = await app.request("/api/session", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ password: "demo-password" }),
+    });
+    const cookie = loginResponse.headers.get("set-cookie");
+    const authenticatedResponse = await app.request("/api/onboarding/state", {
+      headers: { cookie: cookie?.split(";")[0] ?? "" },
+    });
+
+    expect(healthResponse.status).toBe(200);
+    expect(anonymousResponse.status).toBe(401);
+    await expect(anonymousResponse.json()).resolves.toEqual({
+      error: { code: "authentication_required", message: "Enter the shared password to continue." },
+    });
+    expect(wrongPasswordResponse.status).toBe(401);
+    expect(loginResponse.status).toBe(200);
+    expect(cookie).toContain("career_radar_session=");
+    expect(cookie).toContain("HttpOnly");
+    expect(cookie).toContain("Secure");
+    expect(cookie).toContain("SameSite=Strict");
+    expect(authenticatedResponse.status).toBe(200);
+  });
+
   it("clearly rejects an unsupported resume format", async () => {
     const app = createApp({ logger: silentLogger });
     const form = new FormData();

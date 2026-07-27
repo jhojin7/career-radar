@@ -84,14 +84,53 @@ Each query combines a confirmed Search Target's role, location, and work modes w
 
 The adapter uses only public, unauthenticated Job Posting pages. LinkedIn markup and availability can change without notice, so this source is intended only for personal, low-volume collection. A LinkedIn error appears in Collection Run diagnostics while local-source results continue through the existing normalization, deduplication, revision, and persistence path. See [the manual verification guide](docs/manual-verification/linkedin-collection.md).
 
-## Production-mode local run
+## Production build, local adapters
 
 ```bash
 pnpm build
 pnpm start
 ```
 
-Open <http://localhost:3000>. Hono serves the compiled React application and the health operation at `/api/healthz`.
+Open <http://localhost:3000>. Hono serves the compiled React application and the health operation at `/api/healthz`. Unless `APP_ENV=production` is set, this still uses the Firestore emulator/local blob configuration and does not require a password.
+
+## Deploy to Cloud Run
+
+The checked-in `Dockerfile` builds the React assets and TypeScript server into one Node.js 22 image. Its default entrypoint serves both Hono and the compiled React application on `PORT`; the same image can run the terminating worker with `node dist/server/worker.js`.
+
+Before the first deployment, choose a Google Cloud project and create two Secret Manager secrets. Add secret versions without placing either value in a command argument or tracked file:
+
+```bash
+gcloud secrets create career-radar-shared-password --replication-policy=automatic --project "$PROJECT_ID"
+read -rs SHARED_PASSWORD_VALUE
+printf %s "$SHARED_PASSWORD_VALUE" | gcloud secrets versions add career-radar-shared-password --data-file=- --project "$PROJECT_ID"
+unset SHARED_PASSWORD_VALUE
+
+gcloud secrets create career-radar-cookie-signing-secret --replication-policy=automatic --project "$PROJECT_ID"
+openssl rand -base64 48 | gcloud secrets versions add career-radar-cookie-signing-secret --data-file=- --project "$PROJECT_ID"
+```
+
+Deploy from a clean checkout with the required inputs. The script enables the required APIs, creates or reuses a Firestore Native Mode database, regional Artifact Registry repository, uniform-access Cloud Storage bucket, and dedicated Cloud Run service account, then builds and deploys the image.
+
+```bash
+PROJECT_ID=your-gcp-project \
+REGION=asia-northeast3 \
+RESUME_BUCKET=your-globally-unique-career-radar-sources \
+SHARED_PASSWORD_SECRET=career-radar-shared-password \
+COOKIE_SIGNING_SECRET=career-radar-cookie-signing-secret \
+bash scripts/deploy-cloud-run.sh
+```
+
+The runtime identity receives only `roles/datastore.user` and `roles/aiplatform.user` at project scope, `roles/storage.objectUser` on the source bucket, and `roles/secretmanager.secretAccessor` on the two named secrets. Cloud Run itself allows unauthenticated invocation so the login page is reachable; all application operations are protected by the shared-password session. The cookie is signed, `HttpOnly`, `Secure`, and `SameSite=Strict`. `/api/healthz` intentionally remains public for Cloud Run health checks.
+
+Deployment fails before the server starts if required production configuration is missing, if the Firestore emulator is accidentally configured, or if the cookie-signing secret is shorter than 32 characters. Configuration is injected with these environment variables:
+
+- `GOOGLE_CLOUD_PROJECT`, `GOOGLE_CLOUD_LOCATION`, and `GEMINI_MODEL`
+- `PROFILE_PROMPT_VERSION`, `SEARCH_TARGET_PROMPT_VERSION`, and `JOB_POSTING_PROMPT_VERSION`
+- `RESUME_BUCKET` and `JOB_SOURCE_BUCKET`
+- `SHARED_PASSWORD` and `COOKIE_SIGNING_SECRET` through Secret Manager references
+- `SESSION_TTL_SECONDS` (optional, default 12 hours)
+
+The deployment uses the synthetic fixture corpus by default so the current Collection Run workflow remains demonstrable. Override `JOB_CORPUS_DIR` when the image contains a different prepared corpus. No live Google Cloud integration test is part of CI.
 
 ## Verification
 

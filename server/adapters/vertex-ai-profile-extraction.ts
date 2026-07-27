@@ -7,8 +7,6 @@ import {
   type ProfileExtraction,
 } from "../onboarding.js";
 
-const PROFILE_PROMPT_VERSION = "profile-v1";
-const SEARCH_TARGET_PROMPT_VERSION = "search-target-v1";
 const SearchTargetSuggestionsSchema = z.object({
   suggestions: z.array(SearchTargetSuggestionSchema.omit({ id: true })).min(3).max(5),
 });
@@ -17,6 +15,8 @@ type VertexProfileExtractionOptions = {
   project?: string;
   location?: string;
   model?: string;
+  profilePromptVersion?: string;
+  searchTargetPromptVersion?: string;
   idGenerator?: () => string;
 };
 
@@ -24,6 +24,8 @@ export function createVertexAiProfileExtraction({
   project,
   location = "global",
   model = "gemini-2.5-flash",
+  profilePromptVersion = "profile-v1",
+  searchTargetPromptVersion = "search-target-v1",
   idGenerator = () => crypto.randomUUID(),
 }: VertexProfileExtractionOptions): ProfileExtraction {
   let ai: GoogleGenAI | undefined;
@@ -68,7 +70,7 @@ export function createVertexAiProfileExtraction({
       return {
         profile: ProfileDataSchema.parse(JSON.parse(responseText)),
         model: response.modelVersion ?? model,
-        promptVersion: PROFILE_PROMPT_VERSION,
+        promptVersion: profilePromptVersion,
       };
     },
 
@@ -88,7 +90,7 @@ export function createVertexAiProfileExtraction({
         },
       });
       const responseText = response.text;
-      if (!responseText) throw new Error(`Gemini returned no Search Target suggestions (${SEARCH_TARGET_PROMPT_VERSION}).`);
+      if (!responseText) throw new Error(`Gemini returned no Search Target suggestions (${searchTargetPromptVersion}).`);
       const parsed = SearchTargetSuggestionsSchema.parse(JSON.parse(responseText));
       return parsed.suggestions.map((suggestion) => ({ ...suggestion, id: idGenerator() }));
     },

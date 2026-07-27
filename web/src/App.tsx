@@ -1,5 +1,5 @@
-import { ArrowUpRight, BriefcaseBusiness, CalendarDays, Check, Database, FileText, LoaderCircle, MapPin, Plus, Radar, RotateCcw, Save, Sparkles, Trash2, X } from "lucide-react";
-import { useEffect, useState, type ReactNode } from "react";
+import { ArrowUpRight, BriefcaseBusiness, CalendarDays, Check, Database, FileText, KeyRound, LoaderCircle, LogOut, MapPin, Plus, Radar, RotateCcw, Save, Sparkles, Trash2, X } from "lucide-react";
+import { useEffect, useState, type FormEvent, type ReactNode } from "react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -22,10 +22,99 @@ import { isSupportedResumeMetadata } from "./resume-upload.js";
 type WorkMode = ProfileData["workModes"][number];
 type Evidence = ProfileData["experience"][number]["evidence"][number];
 type CollectionState = { latestRun: CollectionRun | null; jobPoolSummary: JobPoolSummary };
+type SessionState = { authenticationRequired: boolean; authenticated: boolean };
 const fieldClass =
   "w-full rounded-xl border border-border bg-background px-3 py-2.5 text-sm outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/15";
 
 export function App() {
+  const [session, setSession] = useState<SessionState | null>(null);
+
+  useEffect(() => {
+    api<SessionState>("/api/session")
+      .then(setSession)
+      .catch(() => setSession({ authenticationRequired: true, authenticated: false }));
+  }, []);
+
+  if (!session) {
+    return <CenteredStatus icon={<LoaderCircle className="size-6 animate-spin" />} label="Opening Career Radar…" />;
+  }
+  if (!session.authenticated) {
+    return <Login onAuthenticated={() => setSession({ authenticationRequired: true, authenticated: true })} />;
+  }
+
+  return (
+    <Workspace
+      authenticationRequired={session.authenticationRequired}
+      onSignedOut={() => setSession({ authenticationRequired: true, authenticated: false })}
+    />
+  );
+}
+
+function Login({ onAuthenticated }: { onAuthenticated: () => void }) {
+  const [password, setPassword] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setBusy(true);
+    setError(null);
+    try {
+      await api<SessionState>("/api/session", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ password }),
+      });
+      onAuthenticated();
+    } catch (caught) {
+      setError(errorMessage(caught));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <main className="grid min-h-screen place-items-center bg-background px-5 py-10">
+      <Card className="w-full max-w-md border-border/70 shadow-xl shadow-primary/5">
+        <CardHeader>
+          <div className="mb-3 grid size-12 place-items-center rounded-2xl bg-primary text-primary-foreground"><Radar className="size-6" /></div>
+          <CardTitle>Open Career Radar</CardTitle>
+          <CardDescription>This private demo workspace contains personal career data. Enter its shared password to continue.</CardDescription>
+        </CardHeader>
+        <CardContent>
+          {error && <Notice tone="error">{error}</Notice>}
+          <form className="space-y-4" onSubmit={submit}>
+            <Field label="Shared password">
+              <div className="relative">
+                <KeyRound className="absolute left-3 top-3 size-4 text-muted-foreground" />
+                <input
+                  autoComplete="current-password"
+                  autoFocus
+                  className={`${fieldClass} pl-10`}
+                  onChange={(event) => setPassword(event.target.value)}
+                  required
+                  type="password"
+                  value={password}
+                />
+              </div>
+            </Field>
+            <Button className="w-full" disabled={busy || password.length === 0} size="lg" type="submit">
+              {busy && <LoaderCircle className="size-4 animate-spin" />}Open workspace
+            </Button>
+          </form>
+        </CardContent>
+      </Card>
+    </main>
+  );
+}
+
+function Workspace({
+  authenticationRequired,
+  onSignedOut,
+}: {
+  authenticationRequired: boolean;
+  onSignedOut: () => void;
+}) {
   const [state, setState] = useState<OnboardingState>({
     draft: null,
     candidateProfile: null,
@@ -171,6 +260,11 @@ export function App() {
     }
   }
 
+  async function signOut() {
+    await api<void>("/api/session", { method: "DELETE" });
+    onSignedOut();
+  }
+
   if (loading) {
     return <CenteredStatus icon={<LoaderCircle className="size-6 animate-spin" />} label="Loading your onboarding workspace…" />;
   }
@@ -183,9 +277,12 @@ export function App() {
             <span className="grid size-10 place-items-center rounded-2xl bg-primary text-primary-foreground"><Radar className="size-5" /></span>
             Career Radar
           </div>
-          <Badge variant={state.searchTargets ? "success" : "outline"}>
-            {state.searchTargets ? "Onboarding complete" : "Candidate Profile onboarding"}
-          </Badge>
+          <div className="flex items-center gap-2">
+            <Badge variant={state.searchTargets ? "success" : "outline"}>
+              {state.searchTargets ? "Onboarding complete" : "Candidate Profile onboarding"}
+            </Badge>
+            {authenticationRequired && <Button aria-label="Sign out" onClick={() => { void signOut(); }} size="icon" variant="ghost"><LogOut className="size-4" /></Button>}
+          </div>
         </div>
       </header>
 
