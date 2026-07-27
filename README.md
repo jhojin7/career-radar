@@ -41,7 +41,7 @@ Optional configuration:
 - Resume PDFs are written under ignored `data/resumes/` local blob storage.
 - Set `RESUME_BUCKET` in a deployed environment to store resume PDFs in Cloud Storage. Production and Cloud Run startup fail fast when it is missing.
 
-## Local Job Pool collection
+## Job Pool collection
 
 Place a prepared corpus under the ignored `data/job-postings/` directory. Each `.txt` or `.pdf` file must contain exactly one Job Posting. Other file types are ignored. To attach a stable source identity or preserve an original URL, add an optional `manifest.json` beside the files:
 
@@ -67,6 +67,22 @@ pnpm collect
 ```
 
 Set `JOB_CORPUS_DIR` to use another directory. Raw Job Posting inputs are copied to ignored `data/job-sources/` storage while normalized fields are stored in Firestore. In a deployed environment, set `JOB_SOURCE_BUCKET` (or reuse `RESUME_BUCKET`) for Cloud Storage. The tracked `fixtures/job-postings/` corpus is synthetic and can be selected with `JOB_CORPUS_DIR=fixtures/job-postings`.
+
+### Optional LinkedIn source
+
+LinkedIn collection is disabled by default. Set `LINKEDIN_COLLECTION_ENABLED=true` to add a best-effort public LinkedIn source to the same Collection Run as the local corpus:
+
+```bash
+LINKEDIN_COLLECTION_ENABLED=true \
+LINKEDIN_MAX_RESULTS=5 \
+LINKEDIN_MAX_QUERIES=3 \
+LINKEDIN_RECENCY_DAYS=7 \
+pnpm collect
+```
+
+Each query combines a confirmed Search Target's role, location, and work modes with the configured recency window. Requests are sequential and stop conservatively when LinkedIn rate-limits them. `LINKEDIN_MAX_RESULTS` accepts 1–10 (default 10); `LINKEDIN_MAX_QUERIES` accepts 1–5 (default 5); `LINKEDIN_RECENCY_DAYS` defaults to 7 and is capped at 30. The optional `LINKEDIN_REQUEST_DELAY_MS` (default 1000, minimum 500) and `LINKEDIN_REQUEST_TIMEOUT_MS` (default 10000) tune request pacing and timeouts.
+
+The adapter uses only public, unauthenticated Job Posting pages. LinkedIn markup and availability can change without notice, so this source is intended only for personal, low-volume collection. A LinkedIn error appears in Collection Run diagnostics while local-source results continue through the existing normalization, deduplication, revision, and persistence path. See [the manual verification guide](docs/manual-verification/linkedin-collection.md).
 
 ## Production-mode local run
 
@@ -94,7 +110,8 @@ Browser
         └── Hono HTTP Interface
               ├── Deterministic Recommendation Module
               ├── Vertex AI Profile Extraction Adapter (Google Gen AI SDK + ADC)
-              ├── Local TXT/PDF Job Source + Vertex AI Job Posting Extraction Adapters
+              ├── Local TXT/PDF + optional public LinkedIn Job Sources
+              ├── Vertex AI Job Posting Extraction Adapter
               ├── Firestore Onboarding Persistence Adapter
               ├── Firestore Collection Persistence Adapter
               └── Local or Cloud Resume and Job Source Blob Storage Adapters

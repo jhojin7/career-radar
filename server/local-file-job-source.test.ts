@@ -24,8 +24,20 @@ describe("local file Job Posting source", () => {
       })),
     ]);
 
-    const documents = await createLocalFileJobSource(directory).discover();
+    const { documents, errors } = await createLocalFileJobSource(directory).discover({
+      searchTargets: {
+        profileId: "candidate-1",
+        searchTargets: [
+          { id: "target-1", title: "Platform Engineer", locations: ["Seoul"], workModes: ["hybrid"] },
+          { id: "target-2", title: "Cloud Engineer", locations: ["Korea"], workModes: ["remote"] },
+          { id: "target-3", title: "Infrastructure Engineer", locations: ["Seoul"], workModes: ["onsite"] },
+        ],
+        updatedAt: "2026-07-27T12:00:00.000Z",
+        confirmedAt: "2026-07-27T12:00:00.000Z",
+      },
+    });
 
+    expect(errors).toEqual([]);
     expect(documents).toHaveLength(2);
     expect(documents[0]).toMatchObject({
       fileName: "alpha.txt",

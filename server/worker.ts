@@ -4,10 +4,10 @@ import { resolve } from "node:path";
 import { createCloudJobSourceBlobStorage } from "./adapters/cloud-job-source-blob-storage.js";
 import { createFirestoreCollectionPersistence } from "./adapters/firestore-collection-persistence.js";
 import { createFirestoreOnboardingPersistence } from "./adapters/firestore-onboarding-persistence.js";
-import { createLocalFileJobSource } from "./adapters/local-file-job-source.js";
 import { createLocalJobSourceBlobStorage } from "./adapters/local-job-source-blob-storage.js";
 import { createVertexAiJobExtraction } from "./adapters/vertex-ai-job-extraction.js";
 import { runCollection } from "./collection.js";
+import { createConfiguredJobSource } from "./configured-job-source.js";
 
 const project = process.env.GOOGLE_CLOUD_PROJECT ?? process.env.GCLOUD_PROJECT;
 const firestoreProjectId = process.env.FIRESTORE_PROJECT_ID ?? project ??
@@ -23,7 +23,7 @@ if (requiresCloudStorage && !bucketName) {
 
 try {
   const collectionRun = await runCollection({
-    source: createLocalFileJobSource(corpusDirectory),
+    source: createConfiguredJobSource(corpusDirectory),
     extraction: createVertexAiJobExtraction({
       project,
       location: process.env.GOOGLE_CLOUD_LOCATION,

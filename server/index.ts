@@ -9,12 +9,12 @@ import { createCloudJobSourceBlobStorage } from "./adapters/cloud-job-source-blo
 import { createFirestoreCollectionPersistence } from "./adapters/firestore-collection-persistence.js";
 import { createFirestoreOnboardingPersistence } from "./adapters/firestore-onboarding-persistence.js";
 import { createFileWebAssets } from "./adapters/file-web-assets.js";
-import { createLocalFileJobSource } from "./adapters/local-file-job-source.js";
 import { createLocalJobSourceBlobStorage } from "./adapters/local-job-source-blob-storage.js";
 import { createLocalResumeBlobStorage } from "./adapters/local-resume-blob-storage.js";
 import { createVertexAiJobExtraction } from "./adapters/vertex-ai-job-extraction.js";
 import { createVertexAiProfileExtraction } from "./adapters/vertex-ai-profile-extraction.js";
 import { createApp, type Logger } from "./app.js";
+import { createConfiguredJobSource } from "./configured-job-source.js";
 
 const port = z.coerce.number().int().positive().parse(process.env.PORT ?? 3000);
 const webRoot = fileURLToPath(new URL("../web/", import.meta.url));
@@ -47,7 +47,7 @@ const app = createApp({
     location: process.env.GOOGLE_CLOUD_LOCATION,
     model: process.env.GEMINI_MODEL,
   }),
-  jobSource: createLocalFileJobSource(corpusDirectory),
+  jobSource: createConfiguredJobSource(corpusDirectory),
   jobPostingExtraction: createVertexAiJobExtraction({
     project,
     location: process.env.GOOGLE_CLOUD_LOCATION,

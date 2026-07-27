@@ -22,7 +22,7 @@ export function createLocalFileJobSource(corpusDirectory: string): JobSource {
         .filter((entry) => entry.isFile() && [".txt", ".pdf"].includes(extname(entry.name).toLowerCase()))
         .sort((left, right) => left.name.localeCompare(right.name));
 
-      return Promise.all(postingFiles.map(async (entry) => {
+      const documents = await Promise.all(postingFiles.map(async (entry) => {
         const fileName = basename(entry.name);
         const extension = extname(fileName).toLowerCase();
         const metadata = manifest.postings[fileName];
@@ -44,6 +44,7 @@ export function createLocalFileJobSource(corpusDirectory: string): JobSource {
           loadError,
         };
       }));
+      return { documents, errors: [] };
     },
   };
 }

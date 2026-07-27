@@ -97,8 +97,18 @@ export type JobSourceDocument = {
   loadError?: string;
 };
 
+export type JobSourceError = {
+  sourceKey: string;
+  message: string;
+};
+
+export type JobSourceDiscovery = {
+  documents: JobSourceDocument[];
+  errors: JobSourceError[];
+};
+
 export type JobSource = {
-  discover: () => Promise<JobSourceDocument[]>;
+  discover: (input: { searchTargets: SearchTargetSet }) => Promise<JobSourceDiscovery>;
 };
 
 export type JobPostingExtractionResult = {
@@ -193,8 +203,11 @@ export async function runCollection({
 
   let documents: JobSourceDocument[];
   try {
-    documents = await source.discover();
+    const discovery = await source.discover({ searchTargets });
+    documents = discovery.documents;
     run.counts.discovered = documents.length;
+    run.errors.push(...discovery.errors);
+    run.counts.failed += discovery.errors.length;
     await persistence.updateRun(CollectionRunSchema.parse(run));
   } catch (error) {
     run.status = "failed";

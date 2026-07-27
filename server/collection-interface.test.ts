@@ -6,6 +6,7 @@ import type {
   CollectionRun,
   JobPosting,
   JobPostingExtraction,
+  JobSourceError,
   JobSourceDocument,
   PostingLookup,
 } from "./collection.js";
@@ -109,7 +110,11 @@ function document(identity: string, text: string, options: Partial<JobSourceDocu
   };
 }
 
-function createFixture(documents: JobSourceDocument[], persistence = new MemoryCollectionPersistence()) {
+function createFixture(
+  documents: JobSourceDocument[],
+  persistence = new MemoryCollectionPersistence(),
+  sourceErrors: JobSourceError[] = [],
+) {
   let inputs = documents;
   let extractionCalls = 0;
   let nextId = 0;
@@ -120,7 +125,7 @@ function createFixture(documents: JobSourceDocument[], persistence = new MemoryC
   const app = createApp({
     logger: silentLogger,
     onboardingPersistence,
-    jobSource: { discover: async () => inputs },
+    jobSource: { discover: async () => ({ documents: inputs, errors: sourceErrors }) },
     jobPostingExtraction: {
       extractJobPosting: async ({ source }) => {
         extractionCalls += 1;
@@ -227,6 +232,24 @@ describe("Job Pool collection Hono interface", () => {
         status: "completed-with-errors",
         counts: { discovered: 2, new: 1, normalized: 1, failed: 1 },
         errors: [{ sourceKey: "broken.txt", message: "Synthetic extraction failure" }],
+      },
+      jobPoolSummary: { activePostings: 1 },
+    });
+  });
+
+  it("records discovery diagnostics without discarding postings returned by another source", async () => {
+    const fixture = createFixture(
+      [document("valid", "valid posting")],
+      new MemoryCollectionPersistence(),
+      [{ sourceKey: "optional-source", message: "Synthetic source unavailable" }],
+    );
+    const response = await fixture.app.request("/api/collection-runs", { method: "POST" });
+
+    await expect(response.json()).resolves.toMatchObject({
+      collectionRun: {
+        status: "completed-with-errors",
+        counts: { discovered: 1, new: 1, normalized: 1, failed: 1 },
+        errors: [{ sourceKey: "optional-source", message: "Synthetic source unavailable" }],
       },
       jobPoolSummary: { activePostings: 1 },
     });
