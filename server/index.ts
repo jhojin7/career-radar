@@ -1,12 +1,18 @@
 import { fileURLToPath } from "node:url";
+import { resolve } from "node:path";
 
 import { serve } from "@hono/node-server";
 import { z } from "zod";
 
 import { createCloudResumeBlobStorage } from "./adapters/cloud-resume-blob-storage.js";
+import { createCloudJobSourceBlobStorage } from "./adapters/cloud-job-source-blob-storage.js";
+import { createFirestoreCollectionPersistence } from "./adapters/firestore-collection-persistence.js";
 import { createFirestoreOnboardingPersistence } from "./adapters/firestore-onboarding-persistence.js";
 import { createFileWebAssets } from "./adapters/file-web-assets.js";
+import { createLocalFileJobSource } from "./adapters/local-file-job-source.js";
+import { createLocalJobSourceBlobStorage } from "./adapters/local-job-source-blob-storage.js";
 import { createLocalResumeBlobStorage } from "./adapters/local-resume-blob-storage.js";
+import { createVertexAiJobExtraction } from "./adapters/vertex-ai-job-extraction.js";
 import { createVertexAiProfileExtraction } from "./adapters/vertex-ai-profile-extraction.js";
 import { createApp, type Logger } from "./app.js";
 
@@ -15,6 +21,8 @@ const webRoot = fileURLToPath(new URL("../web/", import.meta.url));
 const dataRoot = fileURLToPath(new URL("../data/", import.meta.url));
 const project = process.env.GOOGLE_CLOUD_PROJECT ?? process.env.GCLOUD_PROJECT;
 const resumeBucket = process.env.RESUME_BUCKET;
+const jobSourceBucket = process.env.JOB_SOURCE_BUCKET ?? resumeBucket;
+const corpusDirectory = resolve(process.env.JOB_CORPUS_DIR ?? "data/job-postings");
 const requiresCloudStorage = process.env.NODE_ENV === "production" || Boolean(process.env.K_SERVICE);
 
 if (requiresCloudStorage && !resumeBucket) {
@@ -24,6 +32,8 @@ if (requiresCloudStorage && !resumeBucket) {
 const logger: Logger = {
   info: (event) => console.info(JSON.stringify(event)),
 };
+const firestoreProjectId = process.env.FIRESTORE_PROJECT_ID ?? project ??
+  (process.env.FIRESTORE_EMULATOR_HOST ? "career-radar-local" : undefined);
 
 const app = createApp({
   logger,
@@ -31,14 +41,22 @@ const app = createApp({
   blobStorage: resumeBucket
     ? createCloudResumeBlobStorage({ bucketName: resumeBucket, projectId: project })
     : createLocalResumeBlobStorage(dataRoot),
-  onboardingPersistence: createFirestoreOnboardingPersistence({
-    projectId: process.env.FIRESTORE_PROJECT_ID ?? project ?? (process.env.FIRESTORE_EMULATOR_HOST ? "career-radar-local" : undefined),
-  }),
+  onboardingPersistence: createFirestoreOnboardingPersistence({ projectId: firestoreProjectId }),
   profileExtraction: createVertexAiProfileExtraction({
     project,
     location: process.env.GOOGLE_CLOUD_LOCATION,
     model: process.env.GEMINI_MODEL,
   }),
+  jobSource: createLocalFileJobSource(corpusDirectory),
+  jobPostingExtraction: createVertexAiJobExtraction({
+    project,
+    location: process.env.GOOGLE_CLOUD_LOCATION,
+    model: process.env.GEMINI_MODEL,
+  }),
+  collectionPersistence: createFirestoreCollectionPersistence({ projectId: firestoreProjectId }),
+  jobSourceBlobStorage: jobSourceBucket
+    ? createCloudJobSourceBlobStorage({ bucketName: jobSourceBucket, projectId: project })
+    : createLocalJobSourceBlobStorage(dataRoot),
 });
 
 const server = serve({

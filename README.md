@@ -2,7 +2,7 @@
 
 Career Radar is a locally runnable web application that turns a confirmed Candidate Profile into evidence-backed, deterministic Job Recommendations. Production persistence is designed for Firestore and Cloud Storage.
 
-The current slice delivers PDF resume onboarding: a Hono HTTP Interface, a responsive React/Vite UI built with shadcn/ui and Tailwind CSS, Vertex AI Gemini extraction, immutable Candidate Profile versions in Firestore, editable Search Target suggestions, confirmed Search Targets, and local resume blob storage. One production process serves both the API and compiled browser assets.
+The current slice delivers PDF resume onboarding and a local Job Pool collection pipeline: a Hono HTTP Interface, a responsive React/Vite UI built with shadcn/ui and Tailwind CSS, Vertex AI Gemini extraction, immutable Candidate Profile versions in Firestore, confirmed Search Targets, TXT/PDF Job Posting normalization, revision-aware deduplication, and separate raw-source blob storage. One production process serves both the API and compiled browser assets.
 
 The canonical product specification is [GitHub Issue #1](https://github.com/jhojin7/career-radar/issues/1).
 
@@ -41,6 +41,33 @@ Optional configuration:
 - Resume PDFs are written under ignored `data/resumes/` local blob storage.
 - Set `RESUME_BUCKET` in a deployed environment to store resume PDFs in Cloud Storage. Production and Cloud Run startup fail fast when it is missing.
 
+## Local Job Pool collection
+
+Place a prepared corpus under the ignored `data/job-postings/` directory. Each `.txt` or `.pdf` file must contain exactly one Job Posting. Other file types are ignored. To attach a stable source identity or preserve an original URL, add an optional `manifest.json` beside the files:
+
+```json
+{
+  "postings": {
+    "platform-engineer.txt": {
+      "sourceAdapter": "manual-export",
+      "sourceIdentity": "posting-123",
+      "originalUrl": "https://example.com/jobs/123"
+    }
+  }
+}
+```
+
+After confirming a Candidate Profile and three to five Search Targets, run the terminating worker against the Firestore emulator and Vertex AI:
+
+```bash
+FIRESTORE_EMULATOR_HOST=127.0.0.1:8080 \
+FIRESTORE_PROJECT_ID=career-radar-local \
+GOOGLE_CLOUD_PROJECT=your-gcp-project \
+pnpm collect
+```
+
+Set `JOB_CORPUS_DIR` to use another directory. Raw Job Posting inputs are copied to ignored `data/job-sources/` storage while normalized fields are stored in Firestore. In a deployed environment, set `JOB_SOURCE_BUCKET` (or reuse `RESUME_BUCKET`) for Cloud Storage. The tracked `fixtures/job-postings/` corpus is synthetic and can be selected with `JOB_CORPUS_DIR=fixtures/job-postings`.
+
 ## Production-mode local run
 
 ```bash
@@ -66,8 +93,10 @@ Browser
   └── React + Vite + shadcn/ui
         └── Hono HTTP Interface
               ├── Vertex AI Profile Extraction Adapter (Google Gen AI SDK + ADC)
+              ├── Local TXT/PDF Job Source + Vertex AI Job Posting Extraction Adapters
               ├── Firestore Onboarding Persistence Adapter
-              └── Local or Cloud Resume Blob Storage Adapter
+              ├── Firestore Collection Persistence Adapter
+              └── Local or Cloud Resume and Job Source Blob Storage Adapters
 ```
 
-The Hono application is constructed with injected Adapters so automated tests exercise validation, editing, confirmation, and Search Target behavior without calling Vertex AI or Firestore.
+The Hono application is constructed with injected Adapters so automated tests exercise onboarding, import, deduplication, revision, counters, and partial failure without calling Vertex AI or Firestore.

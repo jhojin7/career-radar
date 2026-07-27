@@ -6,3 +6,4 @@ coverage/
 node_modules/
 dist/
 data/
+# Runtime Job Posting corpora and raw snapshots live under data/; tracked fixtures must stay synthetic.

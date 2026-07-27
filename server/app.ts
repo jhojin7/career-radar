@@ -2,6 +2,15 @@ import { Hono } from "hono";
 import { z } from "zod";
 
 import {
+  CollectionPreconditionError,
+  JobPoolSummarySchema,
+  runCollection,
+  type CollectionPersistence,
+  type JobPostingExtractionAdapter,
+  type JobSource,
+  type JobSourceBlobStorage,
+} from "./collection.js";
+import {
   CandidateProfileSchema,
   DEFAULT_FIT_WEIGHTS,
   ProfileDataSchema,
@@ -34,6 +43,10 @@ export type AppDependencies = {
   blobStorage?: ResumeBlobStorage;
   profileExtraction?: ProfileExtraction;
   onboardingPersistence?: OnboardingPersistence;
+  jobSource?: JobSource;
+  jobPostingExtraction?: JobPostingExtractionAdapter;
+  collectionPersistence?: CollectionPersistence;
+  jobSourceBlobStorage?: JobSourceBlobStorage;
   idGenerator?: () => string;
   clock?: () => Date;
 };
@@ -48,6 +61,10 @@ export function createApp({
   blobStorage,
   profileExtraction,
   onboardingPersistence,
+  jobSource,
+  jobPostingExtraction,
+  collectionPersistence,
+  jobSourceBlobStorage,
   idGenerator = () => crypto.randomUUID(),
   clock = () => new Date(),
 }: AppDependencies): Hono {
@@ -349,6 +366,55 @@ export function createApp({
       await onboardingPersistence.confirmSearchTargets(activeProfile.id, confirmedAt),
     );
     return context.json({ searchTargets });
+  });
+
+  app.get("/api/collection/state", async (context) => {
+    if (!collectionPersistence) {
+      return context.json({
+        latestRun: null,
+        jobPoolSummary: JobPoolSummarySchema.parse({
+          activePostings: 0,
+          reviewRequired: 0,
+          totalRevisions: 0,
+          lastUpdatedAt: null,
+        }),
+      });
+    }
+    const [latestRun, jobPoolSummary] = await Promise.all([
+      collectionPersistence.getLatestRun(),
+      collectionPersistence.getJobPoolSummary(),
+    ]);
+    return context.json({ latestRun, jobPoolSummary });
+  });
+
+  app.post("/api/collection-runs", async (context) => {
+    if (!jobSource || !jobPostingExtraction || !collectionPersistence || !jobSourceBlobStorage || !onboardingPersistence) {
+      return context.json(
+        { error: { code: "collection_unavailable", message: "Job Pool collection is not configured." } },
+        503,
+      );
+    }
+    try {
+      const collectionRun = await runCollection({
+        source: jobSource,
+        extraction: jobPostingExtraction,
+        persistence: collectionPersistence,
+        blobStorage: jobSourceBlobStorage,
+        onboardingPersistence,
+        idGenerator,
+        clock,
+      });
+      const jobPoolSummary = await collectionPersistence.getJobPoolSummary();
+      return context.json({ collectionRun, jobPoolSummary }, 201);
+    } catch (error) {
+      if (error instanceof CollectionPreconditionError) {
+        return context.json(
+          { error: { code: "collection_precondition_failed", message: error.message } },
+          409,
+        );
+      }
+      throw error;
+    }
   });
 
   if (webAssets) {

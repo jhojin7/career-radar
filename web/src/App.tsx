@@ -1,9 +1,10 @@
-import { Check, FileText, LoaderCircle, Plus, Radar, RotateCcw, Save, Sparkles, Trash2 } from "lucide-react";
+import { Check, Database, FileText, LoaderCircle, Plus, Radar, RotateCcw, Save, Sparkles, Trash2 } from "lucide-react";
 import { useEffect, useState, type ReactNode } from "react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import type { CollectionRun, JobPoolSummary } from "../../server/collection.js";
 import type {
   CandidateProfile,
   ProfileData,
@@ -18,6 +19,7 @@ import { isSupportedResumeMetadata } from "./resume-upload.js";
 
 type WorkMode = ProfileData["workModes"][number];
 type Evidence = ProfileData["experience"][number]["evidence"][number];
+type CollectionState = { latestRun: CollectionRun | null; jobPoolSummary: JobPoolSummary };
 const fieldClass =
   "w-full rounded-xl border border-border bg-background px-3 py-2.5 text-sm outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/15";
 
@@ -29,6 +31,10 @@ export function App() {
     searchTargets: null,
   });
   const [loading, setLoading] = useState(true);
+  const [collectionState, setCollectionState] = useState<CollectionState>({
+    latestRun: null,
+    jobPoolSummary: { activePostings: 0, reviewRequired: 0, totalRevisions: 0, lastUpdatedAt: null },
+  });
   const [busy, setBusy] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -37,10 +43,17 @@ export function App() {
   const [uploadProgress, setUploadProgress] = useState(0);
 
   useEffect(() => {
-    api<OnboardingState>("/api/onboarding/state")
-      .then(setState)
+    let active = true;
+    const refreshCollection = () => api<CollectionState>("/api/collection/state")
+      .then((next) => { if (active) setCollectionState(next); });
+    Promise.all([
+      api<OnboardingState>("/api/onboarding/state").then((next) => { if (active) setState(next); }),
+      refreshCollection(),
+    ])
       .catch((caught: unknown) => setError(errorMessage(caught)))
       .finally(() => setLoading(false));
+    const interval = window.setInterval(() => { void refreshCollection().catch(() => undefined); }, 5_000);
+    return () => { active = false; window.clearInterval(interval); };
   }, []);
 
   const weightTotal = state.draft
@@ -223,20 +236,73 @@ export function App() {
         )}
 
         {state.candidateProfile && !state.draft && (
-          <SearchTargetsEditor
-            activeProfile={state.candidateProfile}
-            targetDraft={state.searchTargetDraft}
-            confirmedSet={state.searchTargets}
-            busy={busy}
-            onSuggest={suggestTargets}
-            onChange={(searchTargetDraft) => setState((current) => ({ ...current, searchTargetDraft }))}
-            onSave={saveTargets}
-            onConfirm={confirmTargets}
-          />
+          <div className="space-y-6">
+            <SearchTargetsEditor
+              activeProfile={state.candidateProfile}
+              targetDraft={state.searchTargetDraft}
+              confirmedSet={state.searchTargets}
+              busy={busy}
+              onSuggest={suggestTargets}
+              onChange={(searchTargetDraft) => setState((current) => ({ ...current, searchTargetDraft }))}
+              onSave={saveTargets}
+              onConfirm={confirmTargets}
+            />
+            {state.searchTargets && <CollectionOverview state={collectionState} />}
+          </div>
         )}
       </main>
     </div>
   );
+}
+
+function CollectionOverview({ state }: { state: CollectionState }) {
+  const { latestRun, jobPoolSummary } = state;
+  const counters = latestRun ? [
+    ["Discovered", latestRun.counts.discovered],
+    ["New", latestRun.counts.new],
+    ["Revised", latestRun.counts.revised],
+    ["Duplicate", latestRun.counts.duplicate],
+    ["Normalized", latestRun.counts.normalized],
+    ["Review Required", latestRun.counts.reviewRequired],
+    ["Failed", latestRun.counts.failed],
+  ] as const : [];
+  return (
+    <Section
+      title="Job Pool"
+      description="The local and scheduled worker publish the same Collection Run progress and normalized Job Posting inventory."
+    >
+      <div className="grid gap-3 sm:grid-cols-3">
+        <Metric label="Active Job Postings" value={jobPoolSummary.activePostings} />
+        <Metric label="Review Required" value={jobPoolSummary.reviewRequired} />
+        <Metric label="Stored revisions" value={jobPoolSummary.totalRevisions} />
+      </div>
+      <div className="mt-6 rounded-2xl border border-border bg-muted/20 p-4">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex items-center gap-2 font-semibold"><Database className="size-4 text-primary" />Latest Collection Run</div>
+          <Badge variant={latestRun?.status === "completed" ? "success" : "outline"}>
+            {latestRun?.status ?? "Not run yet"}
+          </Badge>
+        </div>
+        {latestRun ? (
+          <>
+            <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4 lg:grid-cols-7">
+              {counters.map(([label, value]) => <Metric compact key={label} label={label} value={value} />)}
+            </div>
+            <p className="mt-4 text-xs text-muted-foreground">
+              Started {new Date(latestRun.startedAt).toLocaleString()}
+              {latestRun.completedAt ? ` · Finished ${new Date(latestRun.completedAt).toLocaleString()}` : " · In progress"}
+            </p>
+          </>
+        ) : (
+          <p className="mt-3 text-sm text-muted-foreground">Add TXT or PDF files under the configured corpus directory, then run <code>pnpm collect</code>.</p>
+        )}
+      </div>
+    </Section>
+  );
+}
+
+function Metric({ label, value, compact = false }: { label: string; value: number; compact?: boolean }) {
+  return <div className={`rounded-xl bg-muted/45 ${compact ? "p-3" : "p-4"}`}><div className="text-xs text-muted-foreground">{label}</div><div className={compact ? "mt-1 text-xl font-semibold" : "mt-1 text-3xl font-semibold"}>{value}</div></div>;
 }
 
 function ProfileEditor({ draft, weightTotal, busy, updateProfile, saveDraft, confirmProfile }: {

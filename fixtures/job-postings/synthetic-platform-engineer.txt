@@ -1,0 +1,20 @@
+Synthetic Systems — Platform Engineer
+
+This fictional Job Posting exists only as a repository fixture.
+
+Location: Seoul, Korea
+Work mode: Hybrid
+Employment type: Full-time
+Experience: 2–4 years
+
+Responsibilities
+- Build internal developer platform services.
+- Improve delivery reliability and developer feedback loops.
+
+Required skills
+- TypeScript
+- API design
+
+Preferred skills
+- Google Cloud Platform
+- Kubernetes

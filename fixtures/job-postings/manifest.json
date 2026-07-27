@@ -1,0 +1,9 @@
+{
+  "postings": {
+    "synthetic-platform-engineer.txt": {
+      "sourceAdapter": "synthetic-board",
+      "sourceIdentity": "synthetic-platform-001",
+      "originalUrl": "https://example.com/jobs/synthetic-platform-001"
+    }
+  }
+}
