@@ -1,1 +1,0 @@
-"""Career Radar application package."""

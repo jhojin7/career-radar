@@ -1,60 +1,50 @@
 # Career Radar
 
-Career Radar is a GCP-based AI job-search demo for the NIPA Google Study Jam PBL.
-It will ingest a job posting, normalize it into one shared schema, compare it with a
-candidate profile, rank it deterministically, and generate an application brief.
+Career Radar is a locally runnable web application that turns a confirmed Candidate Profile into evidence-backed, deterministic Job Recommendations. Production persistence is designed for Firestore and Cloud Storage.
 
-This repository begins with a local, cloud-independent `Job` model and
-source-adapter contract.
+This repository currently contains the TypeScript application shell: a Hono HTTP Interface, a responsive React/Vite UI built with shadcn/ui and Tailwind CSS, and one production process that serves both the API and compiled browser assets.
 
-## Quick start
+The canonical product specification is [GitHub Issue #1](https://github.com/jhojin7/career-radar/issues/1).
 
-Prerequisites: Python 3.12+ and [uv](https://docs.astral.sh/uv/).
+## Prerequisites
 
-```bash
-uv sync
-uv run career-radar sample-job
-uv run pytest
-```
+- Node.js 22 or newer
+- pnpm 10
 
-The sample command intentionally works without Google Cloud credentials. Cloud-aware
-commands validate their configuration explicitly:
+## Local development
 
 ```bash
-cp .env.example .env
-# Set GCP_PROJECT_ID in .env.
-uv run career-radar check-config
+pnpm install
+pnpm dev
 ```
 
-## GCP bootstrap
+Open <http://localhost:5173>. Vite serves the browser UI and proxies `/api` requests to Hono on port 3000.
 
-After choosing the GCP project, authenticate with `gcloud` and run:
+## Production-mode local run
 
 ```bash
-GCP_PROJECT_ID=your-project-id scripts/bootstrap-gcp.sh
+pnpm build
+pnpm start
 ```
 
-The script confirms the target project before enabling Cloud Run, Vertex AI, BigQuery,
-Cloud Storage, Cloud Scheduler, Secret Manager, Artifact Registry, and Cloud Build APIs.
-It does not create billable resources or store secret values.
+Open <http://localhost:3000>. Hono serves the compiled React application and the health operation at `/api/healthz`.
 
-## Project layout
+## Verification
+
+```bash
+pnpm lint
+pnpm typecheck
+pnpm test
+pnpm build
+```
+
+## Application shape
 
 ```text
-src/career_radar/
-  cli.py              Local developer commands
-  config.py           Validated environment configuration
-  domain/job.py       Shared Job schema
-  sources/base.py     JobSource adapter contract
-scripts/
-  bootstrap-gcp.sh    Guarded API-enablement helper
-tests/                Schema and configuration tests
+Browser
+  └── React + Vite + shadcn/ui
+        └── Hono HTTP Interface
+              └── injected external Adapters (added by later slices)
 ```
 
-## Build order
-
-1. Manual job-text input and deterministic validation/scoring.
-2. Normalization, deduplication, and persistence.
-3. Gemini extraction, rank engine, and application brief.
-4. Mobile happy path.
-5. Cloud Run deployment and scheduled collection.
+The Hono application is constructed with injected Adapters so automated tests can exercise its public HTTP behavior without creating production clients.

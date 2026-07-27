@@ -1,9 +1,8 @@
 .DS_Store
 .env
-.pytest_cache/
-.ruff_cache/
-.venv/
+*.local
 __pycache__/
-*.py[cod]
+coverage/
+node_modules/
 dist/
-
+data/

@@ -1,19 +1,22 @@
-.PHONY: setup check test sample config-check
+.PHONY: setup dev check test build start
 
 setup:
-	uv sync
+	pnpm install
+
+dev:
+	pnpm dev
 
 check:
-	uv run ruff check .
-	uv run ruff format --check .
-	uv run pytest
+	pnpm lint
+	pnpm typecheck
+	pnpm test
+	pnpm build
 
 test:
-	uv run pytest
+	pnpm test
 
-sample:
-	uv run career-radar sample-job
+build:
+	pnpm build
 
-config-check:
-	uv run career-radar check-config
-
+start:
+	pnpm start
