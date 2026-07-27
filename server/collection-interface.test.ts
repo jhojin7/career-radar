@@ -179,6 +179,7 @@ function createFixture(
     persistence,
     extractionCalls: () => extractionCalls,
     replaceDocuments: (next: JobSourceDocument[]) => { inputs = next; },
+    waitForExecution: async () => execution,
     async collect() {
       const response = await app.request("/api/collection-runs", { method: "POST" });
       if (response.status === 202) await execution;
@@ -268,6 +269,67 @@ describe("Job Pool collection Hono interface", () => {
     });
   });
 
+  it("accepts a multi-file browser import and preserves supplied source metadata", async () => {
+    const imported: JobSourceDocument[] = [];
+    const jobPostingImport = {
+      async importJobPostings(postings: Array<{
+        fileName: string;
+        mediaType: "text/plain" | "application/pdf";
+        bytes: Uint8Array;
+        sourceIdentity?: string;
+        originalUrl?: string;
+      }>) {
+        imported.push(...postings.map((posting) => ({
+          ...posting,
+          sourceKey: `browser-import:${posting.fileName}`,
+          sourceAdapter: "browser-import",
+        })));
+        return imported.map(({ sourceKey, fileName }) => ({ sourceKey, fileName }));
+      },
+      async discover() { return { documents: imported, errors: [] }; },
+    };
+    const app = createApp({ logger: silentLogger, jobPostingImport });
+    const form = new FormData();
+    form.append("postings", new File(["Platform role"], "platform.txt", { type: "text/plain" }));
+    form.append("postings", new File(["%PDF-1.4 synthetic"], "cloud.pdf", { type: "application/pdf" }));
+    form.set("metadata", JSON.stringify({
+      "platform.txt": {
+        sourceIdentity: "posting-42",
+        originalUrl: "https://example.com/jobs/42",
+      },
+    }));
+
+    const response = await app.request("/api/job-postings/import", { method: "POST", body: form });
+
+    expect(response.status).toBe(201);
+    await expect(response.json()).resolves.toEqual({ imports: [
+      { sourceKey: "browser-import:platform.txt", fileName: "platform.txt" },
+      { sourceKey: "browser-import:cloud.pdf", fileName: "cloud.pdf" },
+    ] });
+    expect(imported).toMatchObject([
+      { sourceIdentity: "posting-42", originalUrl: "https://example.com/jobs/42", mediaType: "text/plain" },
+      { mediaType: "application/pdf" },
+    ]);
+  });
+
+  it("rejects unsupported files before storing a browser import", async () => {
+    let writes = 0;
+    const app = createApp({
+      logger: silentLogger,
+      jobPostingImport: {
+        importJobPostings: async () => { writes += 1; return []; },
+        discover: async () => ({ documents: [], errors: [] }),
+      },
+    });
+    const form = new FormData();
+    form.append("postings", new File(["not supported"], "posting.docx"));
+
+    const response = await app.request("/api/job-postings/import", { method: "POST", body: form });
+
+    expect(response.status).toBe(415);
+    expect(writes).toBe(0);
+  });
+
   it("skips repeated identical input before extraction", async () => {
     const fixture = createFixture([document("posting-1", "same posting")]);
     await fixture.collect();
@@ -322,6 +384,33 @@ describe("Job Pool collection Hono interface", () => {
       },
       jobPoolSummary: { activePostings: 1 },
     });
+  });
+
+  it("retries only the selected failed Job Posting in a new Collection Run", async () => {
+    const fixture = createFixture([
+      document("valid", "valid posting"),
+      document("broken", "MALFORMED posting"),
+    ]);
+    await fixture.collect();
+    fixture.replaceDocuments([
+      document("valid", "valid posting"),
+      document("broken", "repaired posting"),
+    ]);
+
+    const response = await fixture.app.request(
+      `/api/failed-postings/${encodeURIComponent("broken.txt")}/retry`,
+      { method: "POST" },
+    );
+    expect(response.status).toBe(202);
+    await fixture.waitForExecution();
+    const state = await (await fixture.app.request("/api/collection/state")).json() as { latestRun: CollectionRun };
+
+    expect(state.latestRun).toMatchObject({
+      status: "completed",
+      sourceKeys: ["broken.txt"],
+      counts: { discovered: 1, new: 1, normalized: 1, failed: 0 },
+    });
+    expect(fixture.extractionCalls()).toBe(3);
   });
 
   it("records discovery diagnostics without discarding postings returned by another source", async () => {

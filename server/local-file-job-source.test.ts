@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { describe, expect, it } from "vitest";
 
 import { createLocalFileJobSource } from "./adapters/local-file-job-source.js";
+import { createLocalJobPostingImport } from "./adapters/local-job-posting-import.js";
 
 describe("local file Job Posting source", () => {
   it("discovers only TXT and PDF files and applies optional manifest identity and URL metadata", async () => {
@@ -52,5 +53,38 @@ describe("local file Job Posting source", () => {
       sourceAdapter: "local-file",
       sourceIdentity: "beta.pdf",
     });
+  });
+});
+
+describe("local browser Job Posting import", () => {
+  it("persists imported files outside Git and rediscovers their source metadata", async () => {
+    const dataRoot = await mkdtemp(join(tmpdir(), "career-radar-import-"));
+    const adapter = createLocalJobPostingImport(dataRoot);
+    await adapter.importJobPostings([{
+      fileName: "platform.txt",
+      mediaType: "text/plain",
+      bytes: new TextEncoder().encode("Synthetic platform role"),
+      sourceIdentity: "platform-42",
+      originalUrl: "https://example.com/jobs/platform-42",
+    }]);
+
+    const discovery = await adapter.discover({
+      searchTargets: {
+        profileId: "candidate-1",
+        searchTargets: [],
+        updatedAt: "2026-07-27T12:00:00.000Z",
+        confirmedAt: "2026-07-27T12:00:00.000Z",
+      },
+    });
+
+    expect(discovery.errors).toEqual([]);
+    expect(discovery.documents).toMatchObject([{
+      sourceKey: "browser-import:platform.txt",
+      sourceAdapter: "browser-import",
+      sourceIdentity: "platform-42",
+      originalUrl: "https://example.com/jobs/platform-42",
+      fileName: "platform.txt",
+      mediaType: "text/plain",
+    }]);
   });
 });

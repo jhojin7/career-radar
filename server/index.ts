@@ -5,10 +5,12 @@ import { serve } from "@hono/node-server";
 import { createCloudRunJobLauncher } from "./adapters/cloud-run-job-launcher.js";
 import { createCloudResumeBlobStorage } from "./adapters/cloud-resume-blob-storage.js";
 import { createCloudJobSourceBlobStorage } from "./adapters/cloud-job-source-blob-storage.js";
+import { createCloudJobPostingImport } from "./adapters/cloud-job-posting-import.js";
 import { createFirestoreCollectionPersistence } from "./adapters/firestore-collection-persistence.js";
 import { createFirestoreOnboardingPersistence } from "./adapters/firestore-onboarding-persistence.js";
 import { createFileWebAssets } from "./adapters/file-web-assets.js";
 import { createLocalJobSourceBlobStorage } from "./adapters/local-job-source-blob-storage.js";
+import { createLocalJobPostingImport } from "./adapters/local-job-posting-import.js";
 import { createLocalResumeBlobStorage } from "./adapters/local-resume-blob-storage.js";
 import { createVertexAiJobExtraction } from "./adapters/vertex-ai-job-extraction.js";
 import { createVertexAiProfileExtraction } from "./adapters/vertex-ai-profile-extraction.js";
@@ -26,8 +28,11 @@ const logger: Logger = {
 };
 const onboardingPersistence = createFirestoreOnboardingPersistence({ projectId: config.firestoreProjectId });
 const collectionPersistence = createFirestoreCollectionPersistence({ projectId: config.firestoreProjectId });
+const jobPostingImport = config.storage.jobSourceBucket
+  ? createCloudJobPostingImport({ bucketName: config.storage.jobSourceBucket, projectId: config.projectId })
+  : createLocalJobPostingImport(dataRoot);
 const collectionDependencies = {
-  source: createConfiguredJobSource(config.corpusDirectory),
+  source: createConfiguredJobSource(config.corpusDirectory, process.env, jobPostingImport),
   extraction: createVertexAiJobExtraction({
     project: config.projectId,
     location: config.location,
@@ -68,6 +73,7 @@ const app = createApp({
   }),
   collectionPersistence,
   collectionRunLauncher,
+  jobPostingImport,
 });
 
 const server = serve({

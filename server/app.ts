@@ -10,6 +10,7 @@ import {
   JobPoolSummarySchema,
   queueCollectionRun,
   type CollectionPersistence,
+  type JobPostingImportAdapter,
 } from "./collection.js";
 import { failQueuedRun, type CollectionRunLauncher } from "./collection-run-launcher.js";
 import {
@@ -38,6 +39,10 @@ const HealthResponse = z.object({
 });
 const SESSION_COOKIE = "career_radar_session";
 const SessionCredentialsSchema = z.object({ password: z.string() });
+const JobImportMetadataSchema = z.record(z.string(), z.object({
+  sourceIdentity: z.string().trim().min(1).optional(),
+  originalUrl: z.string().url().optional(),
+}));
 
 export type SessionAuth = {
   sharedPassword: string;
@@ -63,6 +68,7 @@ export type AppDependencies = {
   onboardingPersistence?: OnboardingPersistence;
   collectionPersistence?: CollectionPersistence;
   collectionRunLauncher?: CollectionRunLauncher;
+  jobPostingImport?: JobPostingImportAdapter;
   idGenerator?: () => string;
   clock?: () => Date;
 };
@@ -80,6 +86,7 @@ export function createApp({
   onboardingPersistence,
   collectionPersistence,
   collectionRunLauncher,
+  jobPostingImport,
   idGenerator = () => crypto.randomUUID(),
   clock = () => new Date(),
 }: AppDependencies): Hono {
@@ -448,6 +455,65 @@ export function createApp({
     return context.json({ latestRun, jobPoolSummary });
   });
 
+  app.post("/api/job-postings/import", async (context) => {
+    if (!jobPostingImport) {
+      return context.json(
+        { error: { code: "job_import_unavailable", message: "Job Posting import is not configured." } },
+        503,
+      );
+    }
+    const form = await context.req.raw.formData().catch(() => null);
+    const files = form?.getAll("postings").filter((value): value is File => value instanceof File) ?? [];
+    if (files.length === 0 || files.length > 50) {
+      return context.json(
+        { error: { code: "invalid_job_import", message: "Choose between one and 50 TXT or PDF Job Posting files." } },
+        422,
+      );
+    }
+    const metadata = parseJobImportMetadata(form?.get("metadata"));
+    if (!metadata.success) {
+      return context.json(
+        { error: { code: "invalid_job_import_metadata", message: "Job Posting metadata must contain valid source URLs." } },
+        422,
+      );
+    }
+
+    const postings = [];
+    for (const file of files) {
+      const extension = file.name.toLowerCase().endsWith(".pdf")
+        ? ".pdf"
+        : file.name.toLowerCase().endsWith(".txt") ? ".txt" : null;
+      if (!extension) {
+        return context.json(
+          { error: { code: "unsupported_job_posting_format", message: `${file.name} is not a TXT or PDF Job Posting.` } },
+          415,
+        );
+      }
+      if (file.size === 0 || file.size > 15 * 1024 * 1024) {
+        return context.json(
+          { error: { code: "invalid_job_posting_file", message: `${file.name} must be non-empty and no larger than 15 MB.` } },
+          422,
+        );
+      }
+      const bytes = new Uint8Array(await file.arrayBuffer());
+      if (extension === ".pdf" && new TextDecoder().decode(bytes.slice(0, 5)) !== "%PDF-") {
+        return context.json(
+          { error: { code: "invalid_job_posting_pdf", message: `${file.name} is not a valid PDF.` } },
+          422,
+        );
+      }
+      postings.push({
+        fileName: file.name,
+        mediaType: extension === ".pdf" ? "application/pdf" as const : "text/plain" as const,
+        bytes,
+        ...metadata.data[file.name],
+      });
+    }
+
+    const imports = await jobPostingImport.importJobPostings(postings);
+    return context.json({ imports }, 201);
+  });
+
   app.get("/api/recommendations", async (context) => {
     if (!collectionPersistence || !onboardingPersistence) {
       return context.json(
@@ -678,6 +744,50 @@ export function createApp({
     }
   });
 
+  app.post("/api/failed-postings/:sourceKey/retry", async (context) => {
+    if (!collectionRunLauncher || !collectionPersistence || !onboardingPersistence) {
+      return context.json(
+        { error: { code: "collection_unavailable", message: "Job Pool collection is not configured." } },
+        503,
+      );
+    }
+    const sourceKey = context.req.param("sourceKey");
+    const latestRun = await collectionPersistence.getLatestRun();
+    if (!latestRun?.errors.some((failure) => failure.sourceKey === sourceKey)) {
+      return context.json(
+        { error: { code: "failed_posting_not_found", message: "Failed Job Posting not found in the latest Collection Run." } },
+        404,
+      );
+    }
+    try {
+      const collectionRun = await queueCollectionRun({
+        persistence: collectionPersistence,
+        onboardingPersistence,
+        idGenerator,
+        clock,
+        sourceKeys: [sourceKey],
+      });
+      try {
+        await collectionRunLauncher.start({ runId: collectionRun.id });
+      } catch (error) {
+        await failQueuedRun(collectionPersistence, collectionRun.id, errorMessage(error), clock);
+        return context.json(
+          { error: { code: "collection_launch_failed", message: "The failed Job Posting retry could not be started." } },
+          502,
+        );
+      }
+      return context.json({ collectionRun }, 202);
+    } catch (error) {
+      if (error instanceof CollectionPreconditionError) {
+        return context.json({ error: { code: "collection_precondition_failed", message: error.message } }, 409);
+      }
+      if (error instanceof CollectionAlreadyActiveError) {
+        return context.json({ error: { code: "collection_run_active", message: error.message } }, 409);
+      }
+      throw error;
+    }
+  });
+
   if (webAssets) {
     app.get("*", async (context) => {
       if (context.req.path.startsWith("/api/")) {
@@ -711,6 +821,16 @@ function fitWeightsTotalFromRequest(body: unknown): number | null {
   return values.every((value) => typeof value === "number")
     ? values.reduce<number>((total, value) => total + (value as number), 0)
     : null;
+}
+
+function parseJobImportMetadata(value: FormDataEntryValue | null | undefined) {
+  if (value == null || value === "") return JobImportMetadataSchema.safeParse({});
+  if (typeof value !== "string") return JobImportMetadataSchema.safeParse(null);
+  try {
+    return JobImportMetadataSchema.safeParse(JSON.parse(value));
+  } catch {
+    return JobImportMetadataSchema.safeParse(null);
+  }
 }
 
 async function hasValidSession(

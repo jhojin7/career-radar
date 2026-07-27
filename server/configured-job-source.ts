@@ -20,10 +20,15 @@ const LinkedInCollectionConfigSchema = z.object({
 export function createConfiguredJobSource(
   corpusDirectory: string,
   environment: NodeJS.ProcessEnv = process.env,
+  importedSource?: JobSource,
 ): JobSource {
   const localSource = createLocalFileJobSource(corpusDirectory);
   const enabled = LinkedInCollectionEnabledSchema.parse(environment.LINKEDIN_COLLECTION_ENABLED);
-  if (!enabled) return localSource;
+  const sources = [
+    { sourceKey: "local-file", source: localSource },
+    ...(importedSource ? [{ sourceKey: "browser-import", source: importedSource }] : []),
+  ];
+  if (!enabled) return sources.length === 1 ? localSource : createBestEffortJobSource(sources);
 
   const config = LinkedInCollectionConfigSchema.parse({
     maxResults: environment.LINKEDIN_MAX_RESULTS,
@@ -34,7 +39,7 @@ export function createConfiguredJobSource(
   });
 
   return createBestEffortJobSource([
-    { sourceKey: "local-file", source: localSource },
+    ...sources,
     { sourceKey: "linkedin", source: createLinkedInJobSource(config) },
   ]);
 }

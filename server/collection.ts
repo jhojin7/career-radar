@@ -68,6 +68,7 @@ export const CollectionRunSchema = z.object({
   searchTargetCount: z.number().int().positive(),
   counts: CollectionRunCountsSchema,
   errors: z.array(z.object({ sourceKey: z.string().min(1), message: z.string().min(1) })),
+  sourceKeys: z.array(z.string().min(1)).min(1).optional(),
   startedAt: z.string().datetime(),
   completedAt: z.string().datetime().optional(),
 });
@@ -109,6 +110,23 @@ export type JobSourceDiscovery = {
 
 export type JobSource = {
   discover: (input: { searchTargets: SearchTargetSet }) => Promise<JobSourceDiscovery>;
+};
+
+export type JobPostingImport = {
+  fileName: string;
+  mediaType: "text/plain" | "application/pdf";
+  bytes: Uint8Array;
+  sourceIdentity?: string;
+  originalUrl?: string;
+};
+
+export type JobPostingImportReceipt = {
+  sourceKey: string;
+  fileName: string;
+};
+
+export type JobPostingImportAdapter = JobSource & {
+  importJobPostings: (postings: JobPostingImport[]) => Promise<JobPostingImportReceipt[]>;
 };
 
 export type JobPostingExtractionResult = {
@@ -194,6 +212,8 @@ export async function runCollection({
     throw new CollectionPreconditionError("Confirm Search Targets before starting a Collection Run.");
   }
 
+  const queuedRun = runId ? await persistence.getRun(runId) : null;
+  const sourceKeys = queuedRun?.sourceKeys;
   const run = CollectionRunSchema.parse({
     id: runId ?? idGenerator(),
     status: "running",
@@ -202,6 +222,7 @@ export async function runCollection({
     searchTargetCount: searchTargets.searchTargets.length,
     counts: emptyCounts(),
     errors: [],
+    sourceKeys,
     startedAt: clock().toISOString(),
   });
   if (!await persistence.beginRun(run)) {
@@ -211,10 +232,22 @@ export async function runCollection({
   let documents: JobSourceDocument[];
   try {
     const discovery = await source.discover({ searchTargets });
-    documents = discovery.documents;
+    documents = sourceKeys
+      ? discovery.documents.filter((document) => sourceKeys.includes(document.sourceKey))
+      : discovery.documents;
     run.counts.discovered = documents.length;
-    run.errors.push(...discovery.errors);
-    run.counts.failed += discovery.errors.length;
+    const discoveryErrors = sourceKeys
+      ? discovery.errors.filter((error) => sourceKeys.includes(error.sourceKey))
+      : discovery.errors;
+    run.errors.push(...discoveryErrors);
+    run.counts.failed += discoveryErrors.length;
+    if (sourceKeys && documents.length === 0 && discoveryErrors.length === 0) {
+      run.errors.push(...sourceKeys.map((sourceKey) => ({
+        sourceKey,
+        message: "The failed Job Posting source is no longer available.",
+      })));
+      run.counts.failed += sourceKeys.length;
+    }
     await persistence.updateRun(CollectionRunSchema.parse(run));
   } catch (error) {
     run.status = "failed";
@@ -293,7 +326,10 @@ export async function queueCollectionRun({
   onboardingPersistence,
   idGenerator = () => crypto.randomUUID(),
   clock = () => new Date(),
-}: Pick<CollectionDependencies, "persistence" | "onboardingPersistence" | "idGenerator" | "clock">) {
+  sourceKeys,
+}: Pick<CollectionDependencies, "persistence" | "onboardingPersistence" | "idGenerator" | "clock"> & {
+  sourceKeys?: string[];
+}) {
   const candidateProfile = await onboardingPersistence.getActiveProfile();
   if (!candidateProfile) {
     throw new CollectionPreconditionError("Confirm a Candidate Profile before starting a Collection Run.");
@@ -311,6 +347,7 @@ export async function queueCollectionRun({
     searchTargetCount: searchTargets.searchTargets.length,
     counts: emptyCounts(),
     errors: [],
+    sourceKeys,
     startedAt: clock().toISOString(),
   });
   if (!await persistence.queueRun(run)) {

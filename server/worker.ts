@@ -1,9 +1,11 @@
 import { fileURLToPath } from "node:url";
 
 import { createCloudJobSourceBlobStorage } from "./adapters/cloud-job-source-blob-storage.js";
+import { createCloudJobPostingImport } from "./adapters/cloud-job-posting-import.js";
 import { createFirestoreCollectionPersistence } from "./adapters/firestore-collection-persistence.js";
 import { createFirestoreOnboardingPersistence } from "./adapters/firestore-onboarding-persistence.js";
 import { createLocalJobSourceBlobStorage } from "./adapters/local-job-source-blob-storage.js";
+import { createLocalJobPostingImport } from "./adapters/local-job-posting-import.js";
 import { createVertexAiJobExtraction } from "./adapters/vertex-ai-job-extraction.js";
 import { failQueuedRun } from "./collection-run-launcher.js";
 import { runCollection } from "./collection.js";
@@ -13,6 +15,9 @@ import { createConfiguredJobSource } from "./configured-job-source.js";
 const config = loadRuntimeConfig(process.env, { service: false });
 const dataRoot = fileURLToPath(new URL("../data/", import.meta.url));
 const persistence = createFirestoreCollectionPersistence({ projectId: config.firestoreProjectId });
+const jobPostingImport = config.storage.jobSourceBucket
+  ? createCloudJobPostingImport({ bucketName: config.storage.jobSourceBucket, projectId: config.projectId })
+  : createLocalJobPostingImport(dataRoot);
 let runId = process.env.COLLECTION_RUN_ID;
 
 try {
@@ -21,7 +26,7 @@ try {
     if (latestRun?.status === "queued") runId = latestRun.id;
   }
   const collectionRun = await runCollection({
-    source: createConfiguredJobSource(config.corpusDirectory),
+    source: createConfiguredJobSource(config.corpusDirectory, process.env, jobPostingImport),
     extraction: createVertexAiJobExtraction({
       project: config.projectId,
       location: config.location,

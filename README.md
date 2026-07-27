@@ -57,6 +57,8 @@ Place a prepared corpus under the ignored `data/job-postings/` directory. Each `
 }
 ```
 
+After onboarding, the Job Pool panel can also import up to 50 TXT/PDF files at once. Browser imports are staged under ignored `data/job-imports/` locally or the `job-imports/` prefix of `JOB_SOURCE_BUCKET` in production, then consumed by the same Collection Run worker as the configured corpus. A failed posting can be retried from the Failed recommendations view; that retry creates a Collection Run scoped to only the selected source key.
+
 After confirming a Candidate Profile and three to five Search Targets, run the terminating worker against the Firestore emulator and Vertex AI:
 
 ```bash

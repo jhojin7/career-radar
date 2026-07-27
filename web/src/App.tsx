@@ -1,4 +1,4 @@
-import { ArrowUpRight, BriefcaseBusiness, CalendarDays, Check, Database, FileText, KeyRound, LoaderCircle, LogOut, MapPin, Play, Plus, Radar, RotateCcw, Save, Sparkles, Trash2, X } from "lucide-react";
+import { ArrowUpRight, BriefcaseBusiness, CalendarDays, Check, Database, FileText, KeyRound, LoaderCircle, LogOut, MapPin, Play, Plus, Radar, RotateCcw, Save, Sparkles, Trash2, Upload, X } from "lucide-react";
 import { useEffect, useState, type FormEvent, type ReactNode } from "react";
 
 import { Badge } from "@/components/ui/badge";
@@ -130,6 +130,7 @@ function Workspace({
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [selectedResume, setSelectedResume] = useState<File | null>(null);
+  const [selectedPostings, setSelectedPostings] = useState<File[]>([]);
   const [uploadPhase, setUploadPhase] = useState<"idle" | "uploading" | "extracting">("idle");
   const [uploadProgress, setUploadProgress] = useState(0);
 
@@ -255,6 +256,20 @@ function Workspace({
     });
   }
 
+  async function importJobPostings() {
+    if (selectedPostings.length === 0) return;
+    await perform("job-import", async () => {
+      const form = new FormData();
+      selectedPostings.forEach((file) => form.append("postings", file));
+      const result = await api<{ imports: Array<{ sourceKey: string; fileName: string }> }>(
+        "/api/job-postings/import",
+        { method: "POST", body: form },
+      );
+      setSelectedPostings([]);
+      setMessage(`${result.imports.length} Job Posting file${result.imports.length === 1 ? "" : "s"} imported. Run collection when ready.`);
+    });
+  }
+
   async function perform(name: string, action: () => Promise<void>) {
     setBusy(name);
     setError(null);
@@ -357,7 +372,11 @@ function Workspace({
             {state.searchTargets && (
               <CollectionOverview
                 busy={busy === "collection"}
+                importBusy={busy === "job-import"}
                 onCollect={() => { void startCollection(); }}
+                onImport={() => { void importJobPostings(); }}
+                onSelectPostings={setSelectedPostings}
+                selectedPostings={selectedPostings}
                 state={collectionState}
               />
             )}
@@ -365,6 +384,9 @@ function Workspace({
               <RecommendationExplorer
                 key={state.candidateProfile.id}
                 candidateProfile={state.candidateProfile}
+                collectionRevision={collectionState.latestRun
+                  ? `${collectionState.latestRun.id}:${collectionState.latestRun.status}:${collectionState.latestRun.completedAt ?? ""}`
+                  : "none"}
                 onSaved={(candidateProfile) => {
                   setState((current) => ({
                     ...current,
@@ -387,10 +409,14 @@ function Workspace({
   );
 }
 
-function CollectionOverview({ state, busy, onCollect }: {
+function CollectionOverview({ state, busy, importBusy, selectedPostings, onCollect, onImport, onSelectPostings }: {
   state: CollectionState;
   busy: boolean;
+  importBusy: boolean;
+  selectedPostings: File[];
   onCollect: () => void;
+  onImport: () => void;
+  onSelectPostings: (files: File[]) => void;
 }) {
   const { latestRun, jobPoolSummary } = state;
   const active = latestRun?.status === "queued" || latestRun?.status === "running";
@@ -412,6 +438,16 @@ function CollectionOverview({ state, busy, onCollect }: {
         <Metric label="Active Job Postings" value={jobPoolSummary.activePostings} />
         <Metric label="Review Required" value={jobPoolSummary.reviewRequired} />
         <Metric label="Stored revisions" value={jobPoolSummary.totalRevisions} />
+      </div>
+      <div className="mt-6 flex flex-col gap-4 rounded-2xl border border-dashed border-border bg-muted/20 p-4 sm:flex-row sm:items-center sm:justify-between">
+        <label className="cursor-pointer">
+          <div className="flex items-center gap-3"><Upload className="size-5 text-primary" /><div><div className="font-semibold">Import Job Posting files</div><div className="text-sm text-muted-foreground">Choose multiple TXT or PDF files; one file is one Job Posting.</div></div></div>
+          <input className="sr-only" multiple type="file" accept="text/plain,application/pdf,.txt,.pdf" onChange={(event) => onSelectPostings(Array.from(event.target.files ?? []))} />
+        </label>
+        <Button disabled={selectedPostings.length === 0 || importBusy || active} onClick={onImport} variant="outline">
+          {importBusy ? <LoaderCircle className="size-4 animate-spin" /> : <Upload className="size-4" />}
+          {selectedPostings.length > 0 ? `Import ${selectedPostings.length} file${selectedPostings.length === 1 ? "" : "s"}` : "Select files"}
+        </Button>
       </div>
       <div className="mt-6 rounded-2xl border border-border bg-muted/20 p-4">
         <div className="flex flex-wrap items-center justify-between gap-3">
@@ -458,8 +494,9 @@ type RecommendationListResponse = {
   failedPostings: Array<{ sourceKey: string; message: string }>;
 };
 
-function RecommendationExplorer({ candidateProfile, onSaved }: {
+function RecommendationExplorer({ candidateProfile, collectionRevision, onSaved }: {
   candidateProfile: CandidateProfile;
+  collectionRevision: string;
   onSaved: (candidateProfile: CandidateProfile) => void;
 }) {
   const [view, setView] = useState<RecommendationView>("eligible");
@@ -468,6 +505,8 @@ function RecommendationExplorer({ candidateProfile, onSaved }: {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [fitWeights, setFitWeights] = useState<FitWeights>(() => ({ ...candidateProfile.profile.fitWeights }));
   const [saving, setSaving] = useState(false);
+  const [retrying, setRetrying] = useState<string | null>(null);
+  const [refreshToken, setRefreshToken] = useState(0);
   const weightTotal = Object.values(fitWeights).reduce((total, value) => total + value, 0);
   const validWeights = Object.values(fitWeights).every((value) => Number.isInteger(value) && value >= 0) && weightTotal === 100;
   const savedWeights = candidateProfile.profile.fitWeights;
@@ -497,7 +536,20 @@ function RecommendationExplorer({ candidateProfile, onSaved }: {
       })
       .catch((caught: unknown) => { if (active) setLoadError(errorMessage(caught)); });
     return () => { active = false; };
-  }, [candidateProfile.id, fitWeights, hasChanges, validWeights, view]);
+  }, [candidateProfile.id, collectionRevision, fitWeights, hasChanges, refreshToken, validWeights, view]);
+
+  async function retryFailedPosting(sourceKey: string) {
+    setRetrying(sourceKey);
+    setLoadError(null);
+    try {
+      await api(`/api/failed-postings/${encodeURIComponent(sourceKey)}/retry`, { method: "POST" });
+      setRefreshToken((current) => current + 1);
+    } catch (caught) {
+      setLoadError(errorMessage(caught));
+    } finally {
+      setRetrying(null);
+    }
+  }
 
   async function saveFitWeights() {
     if (!validWeights || !hasChanges) return;
@@ -558,7 +610,7 @@ function RecommendationExplorer({ candidateProfile, onSaved }: {
       {!result && !loadError && <div className="flex items-center gap-2 py-10 text-sm text-muted-foreground"><LoaderCircle className="size-4 animate-spin" />Ranking the Job Pool…</div>}
       {result && view === "failed" && (
         <div className="space-y-3">
-          {result.failedPostings.map((failure) => <div className="rounded-2xl border border-rose-200 bg-rose-50 p-4" key={failure.sourceKey}><div className="font-semibold text-rose-900">{failure.sourceKey}</div><p className="mt-1 text-sm text-rose-800">{failure.message}</p></div>)}
+          {result.failedPostings.map((failure) => <div className="flex items-start justify-between gap-4 rounded-2xl border border-rose-200 bg-rose-50 p-4" key={failure.sourceKey}><div><div className="font-semibold text-rose-900">{failure.sourceKey}</div><p className="mt-1 text-sm text-rose-800">{failure.message}</p></div>{isRetryablePosting(failure.sourceKey) && <Button disabled={retrying !== null} onClick={() => { void retryFailedPosting(failure.sourceKey); }} size="sm" variant="outline">{retrying === failure.sourceKey ? <LoaderCircle className="size-4 animate-spin" /> : <RotateCcw className="size-4" />}Retry</Button>}</div>)}
           {result.failedPostings.length === 0 && <EmptyView>There are no failed Job Postings in the latest Collection Run.</EmptyView>}
         </div>
       )}
@@ -812,6 +864,11 @@ function CenteredStatus({ icon, label }: { icon: ReactNode; label: string }) { r
 function replaceAt<T>(values: T[], index: number, value: T): T[] { return values.map((current, currentIndex) => currentIndex === index ? value : current); }
 function splitList(value: string): string[] { return value.split(",").map((item) => item.trim()).filter(Boolean); }
 function weightLabel(key: keyof ProfileData["fitWeights"]): string { return ({ technical: "Technical fit", experience: "Experience fit", careerDirection: "Career direction", workConditions: "Work conditions" })[key]; }
+
+function isRetryablePosting(sourceKey: string): boolean {
+  const normalized = sourceKey.toLowerCase();
+  return normalized.endsWith(".txt") || normalized.endsWith(".pdf");
+}
 function sameFitWeights(left: FitWeights, right: FitWeights): boolean { return (Object.keys(left) as Array<keyof FitWeights>).every((key) => left[key] === right[key]); }
 function errorMessage(error: unknown): string { return error instanceof Error ? error.message : "Something went wrong."; }
 
