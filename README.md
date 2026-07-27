@@ -4,10 +4,8 @@ Career Radar is a GCP-based AI job-search demo for the NIPA Google Study Jam PBL
 It will ingest a job posting, normalize it into one shared schema, compare it with a
 candidate profile, rank it deterministically, and generate an application brief.
 
-This repository begins with the first vertical slice from
-[AS-103](https://linear.app/rumble-freezing-struggle/issue/AS-103): a local,
-cloud-independent `Job` model and source-adapter contract. The setup work is tracked in
-[AS-104](https://linear.app/rumble-freezing-struggle/issue/AS-104).
+This repository begins with a local, cloud-independent `Job` model and
+source-adapter contract.
 
 ## Quick start
 
