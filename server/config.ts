@@ -10,6 +10,8 @@ const EnvironmentSchema = z.object({
   FIRESTORE_PROJECT_ID: z.string().trim().min(1).optional(),
   FIRESTORE_EMULATOR_HOST: z.string().trim().min(1).optional(),
   GOOGLE_CLOUD_LOCATION: z.string().trim().min(1).default("global"),
+  CLOUD_RUN_JOB_NAME: z.string().trim().min(1).optional(),
+  CLOUD_RUN_JOB_LOCATION: z.string().trim().min(1).optional(),
   GEMINI_MODEL: z.string().trim().min(1).default("gemini-2.5-flash"),
   PROFILE_PROMPT_VERSION: z.string().trim().min(1).default("profile-v1"),
   SEARCH_TARGET_PROMPT_VERSION: z.string().trim().min(1).default("search-target-v1"),
@@ -43,6 +45,8 @@ export function loadRuntimeConfig(
       ...(service ? [["RESUME_BUCKET", parsed.RESUME_BUCKET]] : []),
       ["JOB_SOURCE_BUCKET or RESUME_BUCKET", jobSourceBucket],
       ...(service ? [
+        ["CLOUD_RUN_JOB_NAME", parsed.CLOUD_RUN_JOB_NAME],
+        ["CLOUD_RUN_JOB_LOCATION", parsed.CLOUD_RUN_JOB_LOCATION],
         ["SHARED_PASSWORD", parsed.SHARED_PASSWORD],
         ["COOKIE_SIGNING_SECRET", parsed.COOKIE_SIGNING_SECRET],
       ] : []),
@@ -61,6 +65,9 @@ export function loadRuntimeConfig(
     projectId,
     firestoreProjectId,
     location: parsed.GOOGLE_CLOUD_LOCATION,
+    collectionJob: parsed.CLOUD_RUN_JOB_NAME && parsed.CLOUD_RUN_JOB_LOCATION
+      ? { name: parsed.CLOUD_RUN_JOB_NAME, location: parsed.CLOUD_RUN_JOB_LOCATION }
+      : undefined,
     model: parsed.GEMINI_MODEL,
     prompts: {
       profile: parsed.PROFILE_PROMPT_VERSION,

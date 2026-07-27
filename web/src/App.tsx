@@ -1,4 +1,4 @@
-import { ArrowUpRight, BriefcaseBusiness, CalendarDays, Check, Database, FileText, KeyRound, LoaderCircle, LogOut, MapPin, Plus, Radar, RotateCcw, Save, Sparkles, Trash2, X } from "lucide-react";
+import { ArrowUpRight, BriefcaseBusiness, CalendarDays, Check, Database, FileText, KeyRound, LoaderCircle, LogOut, MapPin, Play, Plus, Radar, RotateCcw, Save, Sparkles, Trash2, X } from "lucide-react";
 import { useEffect, useState, type FormEvent, type ReactNode } from "react";
 
 import { Badge } from "@/components/ui/badge";
@@ -247,6 +247,14 @@ function Workspace({
     });
   }
 
+  async function startCollection() {
+    await perform("collection", async () => {
+      const result = await api<{ collectionRun: CollectionRun }>("/api/collection-runs", { method: "POST" });
+      setCollectionState((current) => ({ ...current, latestRun: result.collectionRun }));
+      setMessage("Collection Run queued. Progress will update here automatically.");
+    });
+  }
+
   async function perform(name: string, action: () => Promise<void>) {
     setBusy(name);
     setError(null);
@@ -346,7 +354,13 @@ function Workspace({
               onSave={saveTargets}
               onConfirm={confirmTargets}
             />
-            {state.searchTargets && <CollectionOverview state={collectionState} />}
+            {state.searchTargets && (
+              <CollectionOverview
+                busy={busy === "collection"}
+                onCollect={() => { void startCollection(); }}
+                state={collectionState}
+              />
+            )}
             {state.searchTargets && (
               <RecommendationExplorer
                 key={state.candidateProfile.id}
@@ -373,8 +387,13 @@ function Workspace({
   );
 }
 
-function CollectionOverview({ state }: { state: CollectionState }) {
+function CollectionOverview({ state, busy, onCollect }: {
+  state: CollectionState;
+  busy: boolean;
+  onCollect: () => void;
+}) {
   const { latestRun, jobPoolSummary } = state;
+  const active = latestRun?.status === "queued" || latestRun?.status === "running";
   const counters = latestRun ? [
     ["Discovered", latestRun.counts.discovered],
     ["New", latestRun.counts.new],
@@ -397,9 +416,15 @@ function CollectionOverview({ state }: { state: CollectionState }) {
       <div className="mt-6 rounded-2xl border border-border bg-muted/20 p-4">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="flex items-center gap-2 font-semibold"><Database className="size-4 text-primary" />Latest Collection Run</div>
-          <Badge variant={latestRun?.status === "completed" ? "success" : "outline"}>
-            {latestRun?.status ?? "Not run yet"}
-          </Badge>
+          <div className="flex items-center gap-2">
+            <Badge variant={latestRun?.status === "completed" ? "success" : "outline"}>
+              {latestRun?.status ?? "Not run yet"}
+            </Badge>
+            <Button disabled={busy || active} onClick={onCollect} size="sm">
+              {busy || active ? <LoaderCircle className="size-4 animate-spin" /> : <Play className="size-4" />}
+              {active ? "Collection in progress" : "Run collection"}
+            </Button>
+          </div>
         </div>
         {latestRun ? (
           <>
@@ -407,12 +432,12 @@ function CollectionOverview({ state }: { state: CollectionState }) {
               {counters.map(([label, value]) => <Metric compact key={label} label={label} value={value} />)}
             </div>
             <p className="mt-4 text-xs text-muted-foreground">
-              Started {new Date(latestRun.startedAt).toLocaleString()}
-              {latestRun.completedAt ? ` · Finished ${new Date(latestRun.completedAt).toLocaleString()}` : " · In progress"}
+              {latestRun.status === "queued" ? "Queued" : "Started"} {new Date(latestRun.startedAt).toLocaleString()}
+              {latestRun.completedAt ? ` · Finished ${new Date(latestRun.completedAt).toLocaleString()}` : active ? " · In progress" : ""}
             </p>
           </>
         ) : (
-          <p className="mt-3 text-sm text-muted-foreground">Add TXT or PDF files under the configured corpus directory, then run <code>pnpm collect</code>.</p>
+          <p className="mt-3 text-sm text-muted-foreground">Start a Collection Run to refresh the Job Pool from the configured sources.</p>
         )}
       </div>
     </Section>

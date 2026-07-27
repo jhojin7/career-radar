@@ -97,8 +97,8 @@ function fitWeightFixture() {
     logger: silentLogger,
     collectionPersistence,
     onboardingPersistence,
-    jobSource: {
-      discover: async () => {
+    collectionRunLauncher: {
+      start: async () => {
         collectionStarts += 1;
         throw new Error("Collection must not start during Fit Weight preview.");
       },

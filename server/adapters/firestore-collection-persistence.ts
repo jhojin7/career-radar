@@ -11,6 +11,9 @@ import {
   type PostingLookup,
 } from "../collection.js";
 
+const queuedLeaseMs = 15 * 60 * 1_000;
+const runningLeaseMs = 2 * 60 * 60 * 1_000;
+
 export function createFirestoreCollectionPersistence(options: { projectId?: string } = {}): CollectionPersistence {
   const firestore = new Firestore({
     ...(options.projectId ? { projectId: options.projectId } : {}),
@@ -18,12 +21,31 @@ export function createFirestoreCollectionPersistence(options: { projectId?: stri
   });
 
   return {
-    async createRun(run) {
-      await firestore.doc(`collectionRuns/${run.id}`).create(run);
+    async queueRun(run) {
+      return reserveRun(firestore, run, "queued");
+    },
+
+    async beginRun(run) {
+      return reserveRun(firestore, run, "running");
     },
 
     async updateRun(run) {
-      await firestore.doc(`collectionRuns/${run.id}`).set(run);
+      const runRef = firestore.doc(`collectionRuns/${run.id}`);
+      const activeRunRef = firestore.doc("collectionControl/activeRun");
+      await firestore.runTransaction(async (transaction) => {
+        const activeRun = await transaction.get(activeRunRef);
+        transaction.set(runRef, run);
+        if (isTerminal(run.status) && activeRun.data()?.runId === run.id) {
+          transaction.delete(activeRunRef);
+        } else if (run.status === "running" && activeRun.data()?.runId === run.id) {
+          transaction.set(activeRunRef, activeRunValue(run.id, runningLeaseMs));
+        }
+      });
+    },
+
+    async getRun(id) {
+      const snapshot = await firestore.doc(`collectionRuns/${id}`).get();
+      return snapshot.exists ? CollectionRunSchema.parse(snapshot.data()) : null;
     },
 
     async getLatestRun() {
@@ -82,6 +104,48 @@ export function createFirestoreCollectionPersistence(options: { projectId?: stri
       await batch.commit();
     },
   };
+}
+
+async function reserveRun(
+  firestore: Firestore,
+  run: Parameters<CollectionPersistence["queueRun"]>[0],
+  status: "queued" | "running",
+): Promise<boolean> {
+  const runRef = firestore.doc(`collectionRuns/${run.id}`);
+  const activeRunRef = firestore.doc("collectionControl/activeRun");
+  return firestore.runTransaction(async (transaction) => {
+    const [activeRun, existingRun] = await Promise.all([
+      transaction.get(activeRunRef),
+      transaction.get(runRef),
+    ]);
+
+    if (status === "running" && existingRun.exists) {
+      const queued = CollectionRunSchema.parse(existingRun.data());
+      if (queued.status !== "queued" || activeRun.data()?.runId !== run.id) return false;
+      transaction.set(runRef, run);
+      transaction.set(activeRunRef, activeRunValue(run.id, runningLeaseMs));
+      return true;
+    }
+    if (isLiveLock(activeRun.data()) || existingRun.exists) return false;
+
+    transaction.create(runRef, run);
+    transaction.set(activeRunRef, activeRunValue(run.id, status === "queued" ? queuedLeaseMs : runningLeaseMs));
+    return true;
+  });
+}
+
+function activeRunValue(runId: string, leaseMs: number) {
+  return { runId, expiresAt: new Date(Date.now() + leaseMs).toISOString() };
+}
+
+function isLiveLock(value: FirebaseFirestore.DocumentData | undefined): boolean {
+  return typeof value?.runId === "string" &&
+    typeof value.expiresAt === "string" &&
+    value.expiresAt > new Date().toISOString();
+}
+
+function isTerminal(status: Parameters<CollectionPersistence["updateRun"]>[0]["status"]): boolean {
+  return status === "completed" || status === "completed-with-errors" || status === "failed";
 }
 
 function addLookupWrites(

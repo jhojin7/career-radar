@@ -24,6 +24,8 @@ describe("runtime configuration", () => {
       APP_ENV: "production",
       GOOGLE_CLOUD_PROJECT: "career-radar-prod",
       GOOGLE_CLOUD_LOCATION: "asia-northeast3",
+      CLOUD_RUN_JOB_NAME: "career-radar-collection",
+      CLOUD_RUN_JOB_LOCATION: "asia-northeast3",
       GEMINI_MODEL: "gemini-model",
       PROFILE_PROMPT_VERSION: "profile-v2",
       SEARCH_TARGET_PROMPT_VERSION: "targets-v2",
@@ -38,6 +40,7 @@ describe("runtime configuration", () => {
       projectId: "career-radar-prod",
       firestoreProjectId: "career-radar-prod",
       location: "asia-northeast3",
+      collectionJob: { name: "career-radar-collection", location: "asia-northeast3" },
       model: "gemini-model",
       prompts: { profile: "profile-v2", searchTarget: "targets-v2", jobPosting: "posting-v2" },
       storage: { resumeBucket: "career-radar-sources", jobSourceBucket: "career-radar-sources" },
@@ -47,7 +50,7 @@ describe("runtime configuration", () => {
 
   it("fails fast when deployed configuration is incomplete", () => {
     expect(() => loadRuntimeConfig({ APP_ENV: "production" })).toThrowError(
-      "Missing production configuration: GOOGLE_CLOUD_PROJECT, RESUME_BUCKET, JOB_SOURCE_BUCKET or RESUME_BUCKET, SHARED_PASSWORD, COOKIE_SIGNING_SECRET.",
+      "Missing production configuration: GOOGLE_CLOUD_PROJECT, RESUME_BUCKET, JOB_SOURCE_BUCKET or RESUME_BUCKET, CLOUD_RUN_JOB_NAME, CLOUD_RUN_JOB_LOCATION, SHARED_PASSWORD, COOKIE_SIGNING_SECRET.",
     );
   });
 
@@ -57,6 +60,8 @@ describe("runtime configuration", () => {
       GOOGLE_CLOUD_PROJECT: "career-radar-prod",
       FIRESTORE_EMULATOR_HOST: "127.0.0.1:8080",
       RESUME_BUCKET: "career-radar-sources",
+      CLOUD_RUN_JOB_NAME: "career-radar-collection",
+      CLOUD_RUN_JOB_LOCATION: "asia-northeast3",
       SHARED_PASSWORD: "shared-password",
       COOKIE_SIGNING_SECRET: "01234567890123456789012345678901",
     })).toThrowError("FIRESTORE_EMULATOR_HOST must not be set in production.");

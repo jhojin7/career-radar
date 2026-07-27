@@ -62,7 +62,7 @@ export const CollectionRunCountsSchema = z.object({
 
 export const CollectionRunSchema = z.object({
   id: z.string().min(1),
-  status: z.enum(["running", "completed", "completed-with-errors", "failed"]),
+  status: z.enum(["queued", "running", "completed", "completed-with-errors", "failed"]),
   profileId: z.string().min(1),
   profileVersion: z.number().int().positive(),
   searchTargetCount: z.number().int().positive(),
@@ -137,8 +137,10 @@ export type PostingLookup = {
 };
 
 export type CollectionPersistence = {
-  createRun: (run: CollectionRun) => Promise<void>;
+  queueRun: (run: CollectionRun) => Promise<boolean>;
+  beginRun: (run: CollectionRun) => Promise<boolean>;
   updateRun: (run: CollectionRun) => Promise<void>;
+  getRun: (id: string) => Promise<CollectionRun | null>;
   getLatestRun: () => Promise<CollectionRun | null>;
   getJobPoolSummary: () => Promise<JobPoolSummary>;
   getJobPostings: () => Promise<JobPosting[]>;
@@ -157,9 +159,11 @@ export type CollectionDependencies = {
   onboardingPersistence: OnboardingPersistence;
   idGenerator?: () => string;
   clock?: () => Date;
+  runId?: string;
 };
 
 export class CollectionPreconditionError extends Error {}
+export class CollectionAlreadyActiveError extends Error {}
 
 const emptyCounts = (): CollectionRunCounts => ({
   discovered: 0,
@@ -179,6 +183,7 @@ export async function runCollection({
   onboardingPersistence,
   idGenerator = () => crypto.randomUUID(),
   clock = () => new Date(),
+  runId,
 }: CollectionDependencies): Promise<CollectionRun> {
   const candidateProfile = await onboardingPersistence.getActiveProfile();
   if (!candidateProfile) {
@@ -190,7 +195,7 @@ export async function runCollection({
   }
 
   const run = CollectionRunSchema.parse({
-    id: idGenerator(),
+    id: runId ?? idGenerator(),
     status: "running",
     profileId: candidateProfile.id,
     profileVersion: candidateProfile.version,
@@ -199,7 +204,9 @@ export async function runCollection({
     errors: [],
     startedAt: clock().toISOString(),
   });
-  await persistence.createRun(run);
+  if (!await persistence.beginRun(run)) {
+    throw new CollectionAlreadyActiveError("A Collection Run is already queued or running.");
+  }
 
   let documents: JobSourceDocument[];
   try {
@@ -279,6 +286,37 @@ export async function runCollection({
   const completed = CollectionRunSchema.parse(run);
   await persistence.updateRun(completed);
   return completed;
+}
+
+export async function queueCollectionRun({
+  persistence,
+  onboardingPersistence,
+  idGenerator = () => crypto.randomUUID(),
+  clock = () => new Date(),
+}: Pick<CollectionDependencies, "persistence" | "onboardingPersistence" | "idGenerator" | "clock">) {
+  const candidateProfile = await onboardingPersistence.getActiveProfile();
+  if (!candidateProfile) {
+    throw new CollectionPreconditionError("Confirm a Candidate Profile before starting a Collection Run.");
+  }
+  const searchTargets = await onboardingPersistence.getSearchTargets(candidateProfile.id);
+  if (!searchTargets) {
+    throw new CollectionPreconditionError("Confirm Search Targets before starting a Collection Run.");
+  }
+
+  const run = CollectionRunSchema.parse({
+    id: idGenerator(),
+    status: "queued",
+    profileId: candidateProfile.id,
+    profileVersion: candidateProfile.version,
+    searchTargetCount: searchTargets.searchTargets.length,
+    counts: emptyCounts(),
+    errors: [],
+    startedAt: clock().toISOString(),
+  });
+  if (!await persistence.queueRun(run)) {
+    throw new CollectionAlreadyActiveError("A Collection Run is already queued or running.");
+  }
+  return run;
 }
 
 async function findExistingPosting(

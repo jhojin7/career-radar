@@ -2,7 +2,7 @@
 
 Career Radar is a locally runnable web application that turns a confirmed Candidate Profile into evidence-backed, deterministic Job Recommendations. Production persistence is designed for Firestore and Cloud Storage.
 
-The current slice delivers PDF resume onboarding, local Job Pool collection, and deterministic Job Recommendations: a Hono HTTP Interface, a responsive React/Vite UI built with shadcn/ui and Tailwind CSS, Vertex AI Gemini extraction, immutable Candidate Profile versions in Firestore, confirmed Search Targets, TXT/PDF Job Posting normalization, revision-aware deduplication, evidence-gated exclusions, four component scores, stable Fit Score ranking, and previewable custom Fit Weights that can be saved as a new Candidate Profile version. One production process serves both the API and compiled browser assets.
+The current slice delivers PDF resume onboarding, on-demand and scheduled Job Pool collection, and deterministic Job Recommendations: a Hono HTTP Interface, a responsive React/Vite UI built with shadcn/ui and Tailwind CSS, Vertex AI Gemini extraction, immutable Candidate Profile versions in Firestore, confirmed Search Targets, TXT/PDF Job Posting normalization, revision-aware deduplication, evidence-gated exclusions, four component scores, stable Fit Score ranking, and previewable custom Fit Weights that can be saved as a new Candidate Profile version.
 
 The canonical product specification is [GitHub Issue #1](https://github.com/jhojin7/career-radar/issues/1).
 
@@ -95,7 +95,7 @@ Open <http://localhost:3000>. Hono serves the compiled React application and the
 
 ## Deploy to Cloud Run
 
-The checked-in `Dockerfile` builds the React assets and TypeScript server into one Node.js 22 image. Its default entrypoint serves both Hono and the compiled React application on `PORT`; the same image can run the terminating worker with `node dist/server/worker.js`.
+The checked-in `Dockerfile` builds the React assets and TypeScript server into one Node.js 22 image. Its default entrypoint serves both Hono and the compiled React application on `PORT`; the Cloud Run Job uses the separate terminating worker entrypoint `node dist/server/worker.js` without duplicating collection logic.
 
 Before the first deployment, choose a Google Cloud project and create two Secret Manager secrets. Add secret versions without placing either value in a command argument or tracked file:
 
@@ -120,17 +120,18 @@ COOKIE_SIGNING_SECRET=career-radar-cookie-signing-secret \
 bash scripts/deploy-cloud-run.sh
 ```
 
-The runtime identity receives only `roles/datastore.user` and `roles/aiplatform.user` at project scope, `roles/storage.objectUser` on the source bucket, and `roles/secretmanager.secretAccessor` on the two named secrets. Cloud Run itself allows unauthenticated invocation so the login page is reachable; all application operations are protected by the shared-password session. The cookie is signed, `HttpOnly`, `Secure`, and `SameSite=Strict`. `/api/healthz` intentionally remains public for Cloud Run health checks.
+The script deploys a web service, a single-task Collection Job, and an authenticated Cloud Scheduler HTTP trigger. Set `COLLECTION_SCHEDULE` (default `0 */6 * * *`) and `COLLECTION_TIME_ZONE` (default `Asia/Seoul`) to configure the schedule. The web and scheduler identities receive `roles/run.invoker` only on the Job. The web and Job identities receive the Firestore, Vertex AI, and bucket permissions they require; only the web identity can read the two named secrets. Cloud Run itself allows unauthenticated service invocation so the login page is reachable; all application operations are protected by the shared-password session.
 
 Deployment fails before the server starts if required production configuration is missing, if the Firestore emulator is accidentally configured, or if the cookie-signing secret is shorter than 32 characters. Configuration is injected with these environment variables:
 
 - `GOOGLE_CLOUD_PROJECT`, `GOOGLE_CLOUD_LOCATION`, and `GEMINI_MODEL`
+- `CLOUD_RUN_JOB_NAME` and `CLOUD_RUN_JOB_LOCATION` on the web service
 - `PROFILE_PROMPT_VERSION`, `SEARCH_TARGET_PROMPT_VERSION`, and `JOB_POSTING_PROMPT_VERSION`
 - `RESUME_BUCKET` and `JOB_SOURCE_BUCKET`
 - `SHARED_PASSWORD` and `COOKIE_SIGNING_SECRET` through Secret Manager references
 - `SESSION_TTL_SECONDS` (optional, default 12 hours)
 
-The deployment uses the synthetic fixture corpus by default so the current Collection Run workflow remains demonstrable. Override `JOB_CORPUS_DIR` when the image contains a different prepared corpus. No live Google Cloud integration test is part of CI.
+The deployment uses the synthetic fixture corpus by default so the current Collection Run workflow remains demonstrable. Override `JOB_CORPUS_DIR` when the image contains a different prepared corpus. Follow the [scheduled Collection Run verification](docs/manual-verification/scheduled-collection.md) after deployment. No live Google Cloud integration test is part of CI.
 
 ## Verification
 

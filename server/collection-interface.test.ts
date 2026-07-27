@@ -10,6 +10,7 @@ import type {
   JobSourceDocument,
   PostingLookup,
 } from "./collection.js";
+import { runCollection } from "./collection.js";
 import type { CandidateProfile, OnboardingPersistence, SearchTargetSet } from "./onboarding.js";
 
 const silentLogger: Logger = { info: () => undefined };
@@ -60,12 +61,32 @@ class MemoryCollectionPersistence implements CollectionPersistence {
   sourceAliases = new Map<string, string>();
   urlAliases = new Map<string, string>();
   contentAliases = new Map<string, string>();
+  activeRunId: string | null = null;
 
-  async createRun(run: CollectionRun) { this.runs.push(structuredClone(run)); }
+  async queueRun(run: CollectionRun) {
+    if (this.activeRunId) return false;
+    this.activeRunId = run.id;
+    this.runs.push(structuredClone(run));
+    return true;
+  }
+  async beginRun(run: CollectionRun) {
+    const existing = this.runs.findIndex((candidate) => candidate.id === run.id);
+    if (existing >= 0) {
+      if (this.runs[existing]?.status !== "queued" || this.activeRunId !== run.id) return false;
+      this.runs[existing] = structuredClone(run);
+      return true;
+    }
+    if (this.activeRunId) return false;
+    this.activeRunId = run.id;
+    this.runs.push(structuredClone(run));
+    return true;
+  }
   async updateRun(run: CollectionRun) {
     const index = this.runs.findIndex((candidate) => candidate.id === run.id);
     this.runs[index] = structuredClone(run);
+    if (["completed", "completed-with-errors", "failed"].includes(run.status)) this.activeRunId = null;
   }
+  async getRun(id: string) { return structuredClone(this.runs.find((run) => run.id === id) ?? null); }
   async getLatestRun() { return structuredClone(this.runs.at(-1) ?? null); }
   async getJobPoolSummary() {
     const postings = [...this.postings.values()];
@@ -118,15 +139,14 @@ function createFixture(
   let inputs = documents;
   let extractionCalls = 0;
   let nextId = 0;
+  let execution = Promise.resolve<CollectionRun | null>(null);
   const onboardingPersistence = {
     getActiveProfile: async () => candidateProfile,
     getSearchTargets: async () => searchTargets,
   } as unknown as OnboardingPersistence;
-  const app = createApp({
-    logger: silentLogger,
-    onboardingPersistence,
-    jobSource: { discover: async () => ({ documents: inputs, errors: sourceErrors }) },
-    jobPostingExtraction: {
+  const dependencies = {
+    source: { discover: async () => ({ documents: inputs, errors: sourceErrors }) },
+    extraction: {
       extractJobPosting: async ({ source }) => {
         extractionCalls += 1;
         const text = new TextDecoder().decode(source.bytes);
@@ -138,20 +158,87 @@ function createFixture(
         };
       },
     },
-    collectionPersistence: persistence,
-    jobSourceBlobStorage: { putJobSource: async ({ contentHash }) => `memory://raw/${contentHash}` },
+    persistence,
+    blobStorage: { putJobSource: async ({ contentHash }) => `memory://raw/${contentHash}` },
+    onboardingPersistence,
     idGenerator: () => `id-${++nextId}`,
     clock: () => new Date(now),
+  } satisfies Parameters<typeof runCollection>[0];
+  const app = createApp({
+    logger: silentLogger,
+    onboardingPersistence,
+    collectionPersistence: persistence,
+    collectionRunLauncher: {
+      start: async ({ runId }) => { execution = runCollection({ ...dependencies, runId }); },
+    },
+    idGenerator: dependencies.idGenerator,
+    clock: dependencies.clock,
   });
   return {
     app,
     persistence,
     extractionCalls: () => extractionCalls,
     replaceDocuments: (next: JobSourceDocument[]) => { inputs = next; },
+    async collect() {
+      const response = await app.request("/api/collection-runs", { method: "POST" });
+      if (response.status === 202) await execution;
+      return { response, state: await (await app.request("/api/collection/state")).json() };
+    },
   };
 }
 
 describe("Job Pool collection Hono interface", () => {
+  it("queues an on-demand run without holding the request open and rejects a duplicate", async () => {
+    const persistence = new MemoryCollectionPersistence();
+    const onboardingPersistence = {
+      getActiveProfile: async () => candidateProfile,
+      getSearchTargets: async () => searchTargets,
+    } as unknown as OnboardingPersistence;
+    const app = createApp({
+      logger: silentLogger,
+      onboardingPersistence,
+      collectionPersistence: persistence,
+      collectionRunLauncher: { start: async () => undefined },
+      idGenerator: () => "queued-run",
+      clock: () => new Date(now),
+    });
+
+    const first = await app.request("/api/collection-runs", { method: "POST" });
+    expect(first.status).toBe(202);
+    await expect(first.json()).resolves.toMatchObject({ collectionRun: { id: "queued-run", status: "queued" } });
+
+    const duplicate = await app.request("/api/collection-runs", { method: "POST" });
+    expect(duplicate.status).toBe(409);
+    await expect(duplicate.json()).resolves.toMatchObject({
+      error: { code: "collection_run_active", message: "A Collection Run is already queued or running." },
+    });
+  });
+
+  it("marks a queued run failed when Cloud Run rejects the launch", async () => {
+    const persistence = new MemoryCollectionPersistence();
+    const onboardingPersistence = {
+      getActiveProfile: async () => candidateProfile,
+      getSearchTargets: async () => searchTargets,
+    } as unknown as OnboardingPersistence;
+    const app = createApp({
+      logger: silentLogger,
+      onboardingPersistence,
+      collectionPersistence: persistence,
+      collectionRunLauncher: { start: async () => { throw new Error("Synthetic launch rejection"); } },
+      idGenerator: () => "failed-launch",
+      clock: () => new Date(now),
+    });
+
+    const response = await app.request("/api/collection-runs", { method: "POST" });
+    expect(response.status).toBe(502);
+    expect(await persistence.getRun("failed-launch")).toMatchObject({
+      status: "failed",
+      counts: { failed: 1 },
+      errors: [{ sourceKey: "collection-run", message: "Synthetic launch rejection" }],
+    });
+    expect(persistence.activeRunId).toBeNull();
+  });
+
   it("imports TXT and PDF sources into the same validated Job Posting representation", async () => {
     const fixture = createFixture([
       document("txt-posting", "Synthetic posting"),
@@ -163,10 +250,10 @@ describe("Job Pool collection Hono interface", () => {
       }),
     ]);
 
-    const response = await fixture.app.request("/api/collection-runs", { method: "POST" });
-    expect(response.status).toBe(201);
-    await expect(response.json()).resolves.toMatchObject({
-      collectionRun: { status: "completed", counts: { discovered: 2, new: 2, normalized: 2, reviewRequired: 1, failed: 0 } },
+    const { response, state } = await fixture.collect();
+    expect(response.status).toBe(202);
+    expect(state).toMatchObject({
+      latestRun: { status: "completed", counts: { discovered: 2, new: 2, normalized: 2, reviewRequired: 1, failed: 0 } },
       jobPoolSummary: { activePostings: 2, reviewRequired: 1, totalRevisions: 2 },
     });
     const postings = [...fixture.persistence.postings.values()];
@@ -183,11 +270,11 @@ describe("Job Pool collection Hono interface", () => {
 
   it("skips repeated identical input before extraction", async () => {
     const fixture = createFixture([document("posting-1", "same posting")]);
-    await fixture.app.request("/api/collection-runs", { method: "POST" });
-    const response = await fixture.app.request("/api/collection-runs", { method: "POST" });
+    await fixture.collect();
+    const { state } = await fixture.collect();
 
-    await expect(response.json()).resolves.toMatchObject({
-      collectionRun: { counts: { new: 0, revised: 0, duplicate: 1, normalized: 0 } },
+    expect(state).toMatchObject({
+      latestRun: { counts: { new: 0, revised: 0, duplicate: 1, normalized: 0 } },
       jobPoolSummary: { activePostings: 1, totalRevisions: 1 },
     });
     expect(fixture.extractionCalls()).toBe(1);
@@ -195,12 +282,12 @@ describe("Job Pool collection Hono interface", () => {
 
   it("creates a revision when source identity content changes", async () => {
     const fixture = createFixture([document("posting-1", "first revision")]);
-    await fixture.app.request("/api/collection-runs", { method: "POST" });
+    await fixture.collect();
     fixture.replaceDocuments([document("posting-1", "changed revision")]);
-    const response = await fixture.app.request("/api/collection-runs", { method: "POST" });
+    const { state } = await fixture.collect();
 
-    await expect(response.json()).resolves.toMatchObject({
-      collectionRun: { counts: { new: 0, revised: 1, duplicate: 0, normalized: 1 } },
+    expect(state).toMatchObject({
+      latestRun: { counts: { new: 0, revised: 1, duplicate: 0, normalized: 1 } },
       jobPoolSummary: { activePostings: 1, totalRevisions: 2 },
     });
     expect([...fixture.persistence.postings.values()][0]?.revision).toBe(2);
@@ -211,10 +298,10 @@ describe("Job Pool collection Hono interface", () => {
       document("source-a", "identical content"),
       document("source-b", "identical content"),
     ]);
-    const response = await fixture.app.request("/api/collection-runs", { method: "POST" });
+    const { state } = await fixture.collect();
 
-    await expect(response.json()).resolves.toMatchObject({
-      collectionRun: { counts: { new: 1, duplicate: 1, normalized: 1 } },
+    expect(state).toMatchObject({
+      latestRun: { counts: { new: 1, duplicate: 1, normalized: 1 } },
       jobPoolSummary: { activePostings: 1 },
     });
   });
@@ -224,11 +311,11 @@ describe("Job Pool collection Hono interface", () => {
       document("valid", "valid posting"),
       document("broken", "MALFORMED posting"),
     ]);
-    const response = await fixture.app.request("/api/collection-runs", { method: "POST" });
+    const { response, state } = await fixture.collect();
 
-    expect(response.status).toBe(201);
-    await expect(response.json()).resolves.toMatchObject({
-      collectionRun: {
+    expect(response.status).toBe(202);
+    expect(state).toMatchObject({
+      latestRun: {
         status: "completed-with-errors",
         counts: { discovered: 2, new: 1, normalized: 1, failed: 1 },
         errors: [{ sourceKey: "broken.txt", message: "Synthetic extraction failure" }],
@@ -243,10 +330,10 @@ describe("Job Pool collection Hono interface", () => {
       new MemoryCollectionPersistence(),
       [{ sourceKey: "optional-source", message: "Synthetic source unavailable" }],
     );
-    const response = await fixture.app.request("/api/collection-runs", { method: "POST" });
+    const { state } = await fixture.collect();
 
-    await expect(response.json()).resolves.toMatchObject({
-      collectionRun: {
+    expect(state).toMatchObject({
+      latestRun: {
         status: "completed-with-errors",
         counts: { discovered: 1, new: 1, normalized: 1, failed: 1 },
         errors: [{ sourceKey: "optional-source", message: "Synthetic source unavailable" }],

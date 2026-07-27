@@ -2,6 +2,7 @@ import { fileURLToPath } from "node:url";
 
 import { serve } from "@hono/node-server";
 
+import { createCloudRunJobLauncher } from "./adapters/cloud-run-job-launcher.js";
 import { createCloudResumeBlobStorage } from "./adapters/cloud-resume-blob-storage.js";
 import { createCloudJobSourceBlobStorage } from "./adapters/cloud-job-source-blob-storage.js";
 import { createFirestoreCollectionPersistence } from "./adapters/firestore-collection-persistence.js";
@@ -12,6 +13,7 @@ import { createLocalResumeBlobStorage } from "./adapters/local-resume-blob-stora
 import { createVertexAiJobExtraction } from "./adapters/vertex-ai-job-extraction.js";
 import { createVertexAiProfileExtraction } from "./adapters/vertex-ai-profile-extraction.js";
 import { createApp, type Logger } from "./app.js";
+import { createInProcessCollectionRunLauncher } from "./collection-run-launcher.js";
 import { loadRuntimeConfig } from "./config.js";
 import { createConfiguredJobSource } from "./configured-job-source.js";
 
@@ -22,6 +24,32 @@ const dataRoot = fileURLToPath(new URL("../data/", import.meta.url));
 const logger: Logger = {
   info: (event) => console.info(JSON.stringify(event)),
 };
+const onboardingPersistence = createFirestoreOnboardingPersistence({ projectId: config.firestoreProjectId });
+const collectionPersistence = createFirestoreCollectionPersistence({ projectId: config.firestoreProjectId });
+const collectionDependencies = {
+  source: createConfiguredJobSource(config.corpusDirectory),
+  extraction: createVertexAiJobExtraction({
+    project: config.projectId,
+    location: config.location,
+    model: config.model,
+    promptVersion: config.prompts.jobPosting,
+  }),
+  persistence: collectionPersistence,
+  blobStorage: config.storage.jobSourceBucket
+    ? createCloudJobSourceBlobStorage({ bucketName: config.storage.jobSourceBucket, projectId: config.projectId })
+    : createLocalJobSourceBlobStorage(dataRoot),
+  onboardingPersistence,
+};
+const collectionRunLauncher = config.mode === "production" && config.collectionJob && config.projectId
+  ? createCloudRunJobLauncher({
+      projectId: config.projectId,
+      location: config.collectionJob.location,
+      jobName: config.collectionJob.name,
+    })
+  : createInProcessCollectionRunLauncher(
+      collectionDependencies,
+      (event) => console.error(JSON.stringify(event)),
+    );
 
 const app = createApp({
   logger,
@@ -30,7 +58,7 @@ const app = createApp({
   blobStorage: config.storage.resumeBucket
     ? createCloudResumeBlobStorage({ bucketName: config.storage.resumeBucket, projectId: config.projectId })
     : createLocalResumeBlobStorage(dataRoot),
-  onboardingPersistence: createFirestoreOnboardingPersistence({ projectId: config.firestoreProjectId }),
+  onboardingPersistence,
   profileExtraction: createVertexAiProfileExtraction({
     project: config.projectId,
     location: config.location,
@@ -38,17 +66,8 @@ const app = createApp({
     profilePromptVersion: config.prompts.profile,
     searchTargetPromptVersion: config.prompts.searchTarget,
   }),
-  jobSource: createConfiguredJobSource(config.corpusDirectory),
-  jobPostingExtraction: createVertexAiJobExtraction({
-    project: config.projectId,
-    location: config.location,
-    model: config.model,
-    promptVersion: config.prompts.jobPosting,
-  }),
-  collectionPersistence: createFirestoreCollectionPersistence({ projectId: config.firestoreProjectId }),
-  jobSourceBlobStorage: config.storage.jobSourceBucket
-    ? createCloudJobSourceBlobStorage({ bucketName: config.storage.jobSourceBucket, projectId: config.projectId })
-    : createLocalJobSourceBlobStorage(dataRoot),
+  collectionPersistence,
+  collectionRunLauncher,
 });
 
 const server = serve({

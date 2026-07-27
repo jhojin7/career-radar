@@ -5,14 +5,13 @@ import { deleteCookie, getSignedCookie, setSignedCookie } from "hono/cookie";
 import { z } from "zod";
 
 import {
+  CollectionAlreadyActiveError,
   CollectionPreconditionError,
   JobPoolSummarySchema,
-  runCollection,
+  queueCollectionRun,
   type CollectionPersistence,
-  type JobPostingExtractionAdapter,
-  type JobSource,
-  type JobSourceBlobStorage,
 } from "./collection.js";
+import { failQueuedRun, type CollectionRunLauncher } from "./collection-run-launcher.js";
 import {
   CandidateProfileSchema,
   DEFAULT_FIT_WEIGHTS,
@@ -62,10 +61,8 @@ export type AppDependencies = {
   blobStorage?: ResumeBlobStorage;
   profileExtraction?: ProfileExtraction;
   onboardingPersistence?: OnboardingPersistence;
-  jobSource?: JobSource;
-  jobPostingExtraction?: JobPostingExtractionAdapter;
   collectionPersistence?: CollectionPersistence;
-  jobSourceBlobStorage?: JobSourceBlobStorage;
+  collectionRunLauncher?: CollectionRunLauncher;
   idGenerator?: () => string;
   clock?: () => Date;
 };
@@ -81,10 +78,8 @@ export function createApp({
   blobStorage,
   profileExtraction,
   onboardingPersistence,
-  jobSource,
-  jobPostingExtraction,
   collectionPersistence,
-  jobSourceBlobStorage,
+  collectionRunLauncher,
   idGenerator = () => crypto.randomUUID(),
   clock = () => new Date(),
 }: AppDependencies): Hono {
@@ -643,28 +638,39 @@ export function createApp({
   });
 
   app.post("/api/collection-runs", async (context) => {
-    if (!jobSource || !jobPostingExtraction || !collectionPersistence || !jobSourceBlobStorage || !onboardingPersistence) {
+    if (!collectionRunLauncher || !collectionPersistence || !onboardingPersistence) {
       return context.json(
         { error: { code: "collection_unavailable", message: "Job Pool collection is not configured." } },
         503,
       );
     }
     try {
-      const collectionRun = await runCollection({
-        source: jobSource,
-        extraction: jobPostingExtraction,
+      const collectionRun = await queueCollectionRun({
         persistence: collectionPersistence,
-        blobStorage: jobSourceBlobStorage,
         onboardingPersistence,
         idGenerator,
         clock,
       });
-      const jobPoolSummary = await collectionPersistence.getJobPoolSummary();
-      return context.json({ collectionRun, jobPoolSummary }, 201);
+      try {
+        await collectionRunLauncher.start({ runId: collectionRun.id });
+      } catch (error) {
+        await failQueuedRun(collectionPersistence, collectionRun.id, errorMessage(error), clock);
+        return context.json(
+          { error: { code: "collection_launch_failed", message: "The Collection Run could not be started." } },
+          502,
+        );
+      }
+      return context.json({ collectionRun }, 202);
     } catch (error) {
       if (error instanceof CollectionPreconditionError) {
         return context.json(
           { error: { code: "collection_precondition_failed", message: error.message } },
+          409,
+        );
+      }
+      if (error instanceof CollectionAlreadyActiveError) {
+        return context.json(
+          { error: { code: "collection_run_active", message: error.message } },
           409,
         );
       }
@@ -720,4 +726,8 @@ function passwordsMatch(received: string, expected: string): boolean {
   const receivedDigest = createHash("sha256").update(received).digest();
   const expectedDigest = createHash("sha256").update(expected).digest();
   return timingSafeEqual(receivedDigest, expectedDigest);
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : "Unknown error";
 }
