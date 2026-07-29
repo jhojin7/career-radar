@@ -1,19 +1,80 @@
-# Career Radar
+<h1 align="center">Career Radar</h1>
 
-Career Radar is a locally runnable web application that turns a confirmed Candidate Profile into evidence-backed, deterministic Job Recommendations. Production persistence is designed for Firestore and Cloud Storage.
+<p align="center">
+  <strong>Your career, in focus.</strong><br>
+  Evidence-backed Job Recommendations, ranked deterministically around you.
+</p>
 
-The current slice delivers PDF resume onboarding, on-demand and scheduled Job Pool collection, and deterministic Job Recommendations: a Hono HTTP Interface, a responsive React/Vite UI built with shadcn/ui and Tailwind CSS, Vertex AI Gemini extraction, immutable Candidate Profile versions in Firestore, confirmed Search Targets, TXT/PDF Job Posting normalization, revision-aware deduplication, evidence-gated exclusions, four component scores, stable Fit Score ranking, and previewable custom Fit Weights that can be saved as a new Candidate Profile version.
+<p align="center">
+  <img alt="Node.js 22+" src="https://img.shields.io/badge/Node.js-22%2B-339933?logo=nodedotjs&logoColor=white">
+  <img alt="pnpm 10" src="https://img.shields.io/badge/pnpm-10-F69220?logo=pnpm&logoColor=white">
+  <img alt="TypeScript" src="https://img.shields.io/badge/TypeScript-5.9-3178C6?logo=typescript&logoColor=white">
+  <img alt="React" src="https://img.shields.io/badge/React-19-61DAFB?logo=react&logoColor=111827">
+  <img alt="Google Cloud" src="https://img.shields.io/badge/Google_Cloud-Vertex_AI-4285F4?logo=googlecloud&logoColor=white">
+</p>
 
-The canonical product specification is [GitHub Issue #1](https://github.com/jhojin7/career-radar/issues/1).
+<p align="center">
+  <a href="#product-demo">Watch the demo</a>
+  ·
+  <a href="#quick-start">Run locally</a>
+  ·
+  <a href="docs/PRD.md">Product docs</a>
+  ·
+  <a href="https://github.com/jhojin7/career-radar/issues/1">Canonical spec</a>
+</p>
 
-## Prerequisites
+## Product demo
+
+<p align="center">
+  <a href="https://youtu.be/uxYmZnxHE5g">
+    <img
+      src="artifacts/demo/career-radar-demo-thumbnail.png"
+      alt="Career Radar product demo showing an evidence-backed recommendation for a Platform Engineer role"
+      width="100%"
+    >
+  </a>
+</p>
+
+<p align="center">
+  <a href="https://youtu.be/uxYmZnxHE5g"><strong>▶ Watch on YouTube</strong></a>
+  <br>
+  <sub>15-second product demo · H.264 · 1080p</sub>
+</p>
+
+## Why Career Radar
+
+Most job discovery tools tell you *what* matched. Career Radar also tells you *why*.
+It turns a confirmed Candidate Profile and a collected Job Pool into reproducible Job
+Recommendations, with the evidence, strengths, gaps, and Disqualifying Conditions
+behind every Fit Score.
+
+| Your profile | Your Job Pool | Your recommendations |
+| --- | --- | --- |
+| Extract a Profile Draft from a PDF resume, then confirm the facts and preferences that matter. | Collect TXT/PDF Job Postings on demand or on a schedule, with revision-aware deduplication. | Rank by four explainable fit components, surface ambiguity as Review Required, and keep exclusions evidence-gated. |
+
+### How it works
+
+1. Upload a PDF resume and review the extracted Profile Draft.
+2. Confirm the Candidate Profile and three to five Search Targets.
+3. Collect and normalize Job Postings into the Job Pool.
+4. Evaluate evidence, Disqualifying Conditions, and four fit components.
+5. Explore ranked Job Recommendations and preview custom Fit Weights.
+
+> **Current scope:** a responsive React/Vite interface, Hono HTTP Interface,
+> Vertex AI Gemini extraction, immutable Candidate Profile versions in Firestore,
+> local or Cloud Storage blobs, manual and scheduled Collection Runs, and
+> deterministic recommendation ranking.
+
+## Quick start
+
+### Prerequisites
 
 - Node.js 22 or newer
 - pnpm 10
 - Google Cloud CLI with a project that has Vertex AI enabled
 - A local Firestore emulator
 
-## Local development
+### Local development
 
 Authenticate Application Default Credentials once and start the Firestore emulator in a separate terminal:
 
