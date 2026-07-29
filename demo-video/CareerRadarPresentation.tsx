@@ -2,7 +2,6 @@ import {
   ArrowRight,
   BarChart3,
   BriefcaseBusiness,
-  Check,
   CircleAlert,
   Cloud,
   Database,
@@ -70,13 +69,12 @@ export function CareerRadarPresentation() {
       <SceneSequence start={40} end={60}><JourneyScene /></SceneSequence>
       <SceneSequence start={60} end={85}><ArchitectureScene /></SceneSequence>
       <SceneSequence start={85} end={105}><DesignScene /></SceneSequence>
-      <SceneSequence start={105} end={115}><VerificationScene /></SceneSequence>
-      <SceneSequence start={115} end={126}><ProductScreenshotScene kind="collection" /></SceneSequence>
-      <SceneSequence start={126} end={138}><ProductScreenshotScene kind="recommendations" /></SceneSequence>
-      <SceneSequence start={138} end={153}><ProductScreenshotScene kind="evidence" /></SceneSequence>
-      <SceneSequence start={153} end={164}><GuardrailsScene /></SceneSequence>
-      <SceneSequence start={164} end={177}><RoadmapScene /></SceneSequence>
-      <SceneSequence start={177} end={185}><OutroScene /></SceneSequence>
+      <SceneSequence start={105} end={116}><ProductScreenshotScene kind="collection" /></SceneSequence>
+      <SceneSequence start={116} end={128}><ProductScreenshotScene kind="recommendations" /></SceneSequence>
+      <SceneSequence start={128} end={143}><ProductScreenshotScene kind="evidence" /></SceneSequence>
+      <SceneSequence start={143} end={154}><GuardrailsScene /></SceneSequence>
+      <SceneSequence start={154} end={167}><RoadmapScene /></SceneSequence>
+      <SceneSequence start={167} end={175}><OutroScene /></SceneSequence>
       <TopRail scene={currentScene.label} seconds={seconds} />
       <BurnedInSubtitle seconds={seconds} />
     </AbsoluteFill>
@@ -204,7 +202,7 @@ function ScopeScene() {
     {title: "Job Pool", detail: "수집 · 정규화 · 중복 제거", icon: <Database size={37} />},
     {title: "Recommendations", detail: "Fit Score · 제외 · 근거", icon: <Gauge size={37} />},
   ];
-  const scroll = interpolate(frame, [60, 400], [0, -1540], {
+  const scroll = interpolate(frame, [60, 400], [0, -1060], {
     easing: Easing.inOut(Easing.cubic),
     extrapolateLeft: "clamp",
     extrapolateRight: "clamp",
@@ -288,31 +286,39 @@ function ArchitectureScene() {
   const frame = useCurrentFrame();
   const pulse = 0.5 + Math.sin(frame / 14) * 0.5;
   const services = [
-    {x: 830, y: 190, title: "Vertex AI Gemini", sub: "사실 · 근거 추출", icon: <Sparkles size={31} />, color: C.coral},
-    {x: 830, y: 420, title: "Firestore", sub: "구조화 데이터", icon: <Database size={31} />, color: C.green2},
-    {x: 830, y: 650, title: "Cloud Storage", sub: "원본 PDF · 공고", icon: <Cloud size={31} />, color: "#527ca7"},
+    {title: "Vertex AI Gemini", sub: "사실 · 근거 추출", icon: <Sparkles size={31} />, color: C.coral},
+    {title: "Firestore", sub: "구조화 데이터", icon: <Database size={31} />, color: C.green2},
+    {title: "Cloud Storage", sub: "원본 PDF · 공고", icon: <Cloud size={31} />, color: "#527ca7"},
   ];
   return (
     <Frame>
       <SectionHeader eyebrow="GCP Architecture" title={<>웹과 배치는 분리하고,<br /><Accent>데이터와 로직은 공유합니다.</Accent></>} compact />
-      <div style={{position: "absolute", right: 80, top: 130, width: 1040, height: 760}}>
-        <ArchitectureLine x1={150} y1={250} x2={360} y2={250} progress={frame / 80} />
-        <ArchitectureLine x1={560} y1={250} x2={770} y2={235} progress={(frame - 25) / 80} />
-        <ArchitectureLine x1={560} y1={280} x2={770} y2={465} progress={(frame - 45) / 80} />
-        <ArchitectureLine x1={560} y1={310} x2={770} y2={695} progress={(frame - 65) / 80} />
-        <ArchitectureLine x1={345} y1={620} x2={455} y2={390} progress={(frame - 100) / 100} dashed />
-        <ArchitectureLine x1={455} y1={390} x2={455} y2={320} progress={(frame - 130) / 70} dashed />
-        <ArchitectureNode x={0} y={175} title="사용자" sub="Browser" icon={<UserCheck size={34} />} />
-        <ArchitectureNode x={350} y={160} title="Cloud Run" sub="React / Vite + Hono API" icon={<Cloud size={36} />} wide strong />
-        <ArchitectureNode x={240} y={580} title="Cloud Scheduler" sub="예약 트리거" icon={<MonitorCog size={32} />} />
-        <ArchitectureNode x={420} y={560} title="Cloud Run Job" sub="Collection worker" icon={<Workflow size={32} />} />
+      <div style={{position: "absolute", right: 55, top: 135, width: 1150, height: 760}}>
+        <ArchitectureLine x1={225} y1={220} x2={260} y2={205} progress={frame / 50} />
+        <ArchitectureLine x1={225} y1={565} x2={260} y2={550} progress={(frame - 35) / 50} dashed />
+        <ArchitectureLine x1={410} y1={270} x2={410} y2={485} progress={(frame - 65) / 80} dashed />
+        <ArchitectureLine x1={560} y1={205} x2={690} y2={205} progress={(frame - 95) / 70} />
+        <ArchitectureLine x1={560} y1={550} x2={690} y2={550} progress={(frame - 125) / 70} />
+        <ArchitectureNode x={0} y={155} title="사용자" sub="Browser" icon={<UserCheck size={34} />} />
+        <ArchitectureNode x={260} y={140} title="Cloud Run Service" sub="React / Vite + Hono API" icon={<Cloud size={36} />} wide />
+        <ArchitectureNode x={0} y={500} title="Cloud Scheduler" sub="예약 트리거" icon={<MonitorCog size={32} />} />
+        <ArchitectureNode x={260} y={485} title="Cloud Run Job" sub="Collection worker" icon={<Workflow size={32} />} wide strong />
+        <div style={{position: "absolute", left: 430, top: 355, padding: "7px 11px", borderRadius: 999, background: C.paper, border: `1px solid ${C.line}`, color: C.coral, fontSize: 12.5, fontWeight: 800}}>
+          수동 실행
+        </div>
+        <div style={{position: "absolute", left: 690, top: 50, width: 460, height: 650, boxSizing: "border-box", borderRadius: 30, border: `1px solid ${C.line}`, background: "rgba(255,254,250,.5)"}}>
+          <div style={{position: "absolute", left: 28, top: 25, color: C.green, fontSize: 14, fontWeight: 850, letterSpacing: 1.4, textTransform: "uppercase"}}>
+            Shared Data &amp; AI
+          </div>
+        </div>
         {services.map((service, index) => (
-          <ArchitectureNode key={service.title} {...service} delay={80 + index * 30} />
+          <ArchitectureNode key={service.title} {...service} x={825} y={125 + index * 190} wide delay={105 + index * 30} />
         ))}
-        <div style={{position: "absolute", left: 485, top: 332, width: 14, height: 14, borderRadius: "50%", background: C.coral, boxShadow: `0 0 0 ${10 + pulse * 10}px rgba(237,118,88,.12)`}} />
+        <div style={{position: "absolute", left: 680, top: 195, width: 14, height: 14, borderRadius: "50%", background: C.coral, boxShadow: `0 0 0 ${10 + pulse * 10}px rgba(237,118,88,.12)`}} />
+        <div style={{position: "absolute", left: 680, top: 540, width: 14, height: 14, borderRadius: "50%", background: C.coral, boxShadow: `0 0 0 ${10 + pulse * 10}px rgba(237,118,88,.12)`}} />
       </div>
       <div style={{position: "absolute", left: 95, bottom: 185, maxWidth: 600}}>
-        <Callout icon={<Workflow size={25} />} text="수동 실행과 예약 실행이 동일한 Collection Run 로직을 사용" />
+        <Callout icon={<Workflow size={25} />} text="웹 서비스와 Scheduler가 동일한 Cloud Run Job을 실행" />
       </div>
     </Frame>
   );
@@ -334,32 +340,6 @@ function DesignScene() {
       </div>
       <div style={{position: "absolute", left: 280, right: 280, bottom: 165, display: "flex", justifyContent: "center", gap: 20}}>
         <Tag>같은 입력</Tag><ArrowRight size={27} color={C.muted} /><Tag>같은 점수</Tag><ArrowRight size={27} color={C.muted} /><Tag>같은 순위</Tag>
-      </div>
-    </Frame>
-  );
-}
-
-function VerificationScene() {
-  const frame = useCurrentFrame();
-  const metrics = [
-    {value: 81, suffix: "", label: "Automated tests", icon: <Check size={38} />},
-    {value: 11, suffix: "", label: "Test files", icon: <FileCheck2 size={38} />},
-    {value: 100, suffix: "%", label: "TypeScript check", icon: <ShieldCheck size={38} />},
-  ];
-  return (
-    <Frame>
-      <CenteredHeader eyebrow="Verified" title="핵심 흐름은 자동화 검증을 통과했습니다." />
-      <div style={{position: "absolute", left: 230, right: 230, top: 390, display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 35}}>
-        {metrics.map((metric, index) => {
-          const progress = spring({frame: frame - index * 18, fps: 30, config: {damping: 16, stiffness: 95}});
-          return (
-            <div key={metric.label} style={{background: index === 0 ? C.green : C.paper, color: index === 0 ? "white" : C.ink, borderRadius: 34, padding: "40px 42px", border: `1px solid ${index === 0 ? C.green : C.line}`, boxShadow: "0 24px 60px rgba(24,33,30,.1)", transform: `translateY(${(1 - progress) * 35}px)`, opacity: progress}}>
-              <div style={{color: index === 0 ? C.mint : C.green}}>{metric.icon}</div>
-              <div style={{fontSize: 78, fontWeight: 800, letterSpacing: -4, marginTop: 24}}>{Math.round(metric.value * progress)}{metric.suffix}</div>
-              <div style={{fontSize: 19, color: index === 0 ? "rgba(255,255,255,.72)" : C.muted}}>{metric.label}</div>
-            </div>
-          );
-        })}
       </div>
     </Frame>
   );
@@ -507,7 +487,7 @@ function TopRail({scene, seconds}: {scene: string; seconds: number}) {
   return (
     <div style={{position: "absolute", left: 72, right: 72, top: 32, zIndex: 80, display: "grid", gridTemplateColumns: "240px 1fr 90px", alignItems: "center", gap: 24}}>
       <div style={{display: "flex", alignItems: "center", gap: 11, fontWeight: 800, fontSize: 16}}><Radar size={23} color={C.green} /> Career Radar</div>
-      <div style={{height: 3, borderRadius: 99, background: "rgba(24,33,30,.1)", overflow: "hidden"}}><div style={{height: "100%", width: `${seconds / 185 * 100}%`, background: `linear-gradient(90deg, ${C.green}, ${C.coral})`}} /></div>
+      <div style={{height: 3, borderRadius: 99, background: "rgba(24,33,30,.1)", overflow: "hidden"}}><div style={{height: "100%", width: `${seconds / 175 * 100}%`, background: `linear-gradient(90deg, ${C.green}, ${C.coral})`}} /></div>
       <div style={{fontSize: 13, color: C.muted, textAlign: "right", textTransform: "uppercase", letterSpacing: 1.1}}>{scene}</div>
     </div>
   );
@@ -555,7 +535,7 @@ function ArchitectureNode({x, y, title, sub, icon, wide = false, strong = false,
   const frame = useCurrentFrame();
   const show = spring({frame: frame - delay, fps: 30, config: {damping: 17, stiffness: 95}});
   return (
-    <div style={{position: "absolute", left: x, top: y, width: wide ? 300 : 225, minHeight: 130, padding: 22, borderRadius: 24, background: strong ? C.green : C.paper, color: strong ? "white" : C.ink, border: `1px solid ${strong ? C.green : C.line}`, boxShadow: "0 18px 45px rgba(24,33,30,.09)", opacity: show, transform: `scale(${0.88 + show * 0.12})`}}>
+    <div style={{position: "absolute", left: x, top: y, width: wide ? 300 : 225, minHeight: 130, boxSizing: "border-box", padding: 22, borderRadius: 24, background: strong ? C.green : C.paper, color: strong ? "white" : C.ink, border: `1px solid ${strong ? C.green : C.line}`, boxShadow: "0 18px 45px rgba(24,33,30,.09)", opacity: show, transform: `scale(${0.88 + show * 0.12})`}}>
       <div style={{color: strong ? C.mint : color}}>{icon}</div>
       <b style={{display: "block", fontSize: 19, marginTop: 13}}>{title}</b>
       <div style={{fontSize: 13.5, marginTop: 4, color: strong ? "rgba(255,255,255,.68)" : C.muted}}>{sub}</div>

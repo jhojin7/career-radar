@@ -23,7 +23,7 @@
     "presentation:render": "remotion render demo-video/index.ts CareerRadarPresentation artifacts/presentation/career-radar-presentation-remotion-master.mp4 --codec=h264 --public-dir=artifacts/presentation/screenshots",
     "presentation:normalize": "ffmpeg -y -i artifacts/presentation/career-radar-presentation-remotion-master.mp4 -map 0:v:0 -c:v libx264 -preset medium -crf 19 -pix_fmt yuv420p -movflags +faststart -an artifacts/presentation/career-radar-presentation.mp4",
     "presentation:build": "pnpm presentation:subtitles && pnpm presentation:render && pnpm presentation:normalize && pnpm presentation:still",
-    "presentation:still": "remotion still demo-video/index.ts CareerRadarPresentation artifacts/presentation/career-radar-presentation-thumbnail.png --frame=4245 --public-dir=artifacts/presentation/screenshots",
+    "presentation:still": "remotion still demo-video/index.ts CareerRadarPresentation artifacts/presentation/career-radar-presentation-thumbnail.png --frame=3945 --public-dir=artifacts/presentation/screenshots",
     "presentation:subtitles": "tsx demo-video/write-subtitles.ts",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "lint": "eslint .",

@@ -1,5 +1,5 @@
 export const PRESENTATION_FPS = 30;
-export const PRESENTATION_DURATION_SECONDS = 185;
+export const PRESENTATION_DURATION_SECONDS = 175;
 export const PRESENTATION_DURATION_FRAMES = PRESENTATION_DURATION_SECONDS * PRESENTATION_FPS;
 
 export type PresentationScene = {
@@ -16,13 +16,12 @@ export const presentationScenes: PresentationScene[] = [
   {id: "journey", label: "Flow", start: 40, end: 60},
   {id: "architecture", label: "GCP Architecture", start: 60, end: 85},
   {id: "design", label: "Core Design", start: 85, end: 105},
-  {id: "verification", label: "Verification", start: 105, end: 115},
-  {id: "collection", label: "Live Product", start: 115, end: 126},
-  {id: "recommendations", label: "Recommendations", start: 126, end: 138},
-  {id: "evidence", label: "Evidence", start: 138, end: 153},
-  {id: "guardrails", label: "Guardrails", start: 153, end: 164},
-  {id: "roadmap", label: "Next", start: 164, end: 177},
-  {id: "outro", label: "Career Radar", start: 177, end: 185},
+  {id: "collection", label: "Live Product", start: 105, end: 116},
+  {id: "recommendations", label: "Recommendations", start: 116, end: 128},
+  {id: "evidence", label: "Evidence", start: 128, end: 143},
+  {id: "guardrails", label: "Guardrails", start: 143, end: 154},
+  {id: "roadmap", label: "Next", start: 154, end: 167},
+  {id: "outro", label: "Career Radar", start: 167, end: 175},
 ];
 
 export type SubtitleCue = {
@@ -53,20 +52,18 @@ export const subtitleCues: SubtitleCue[] = [
   {start: 90.7, end: 96.2, text: "Gemini는 사실을 추출하지만, 제외 조건과 Fit Score를 직접 결정하지 않습니다."},
   {start: 96.2, end: 100.8, text: "점수와 순위는 규칙으로 계산해 같은 입력에는 같은 결과를 제공합니다."},
   {start: 100.8, end: 104.6, text: "근거가 모호하면 자동 제외하지 않고 Review Required로 남깁니다."},
-  {start: 105.5, end: 110.2, text: "현재 자동화 테스트 81개, 테스트 파일 11개가 모두 통과합니다."},
-  {start: 110.2, end: 114.6, text: "TypeScript 타입 검사도 통과해 핵심 흐름의 계약을 검증했습니다."},
-  {start: 115.4, end: 120.6, text: "실제 화면에서는 완료된 Collection Run과 정규화된 Job Pool을 확인할 수 있습니다."},
-  {start: 120.6, end: 125.6, text: "발견, 신규, 중복, 검토 필요, 실패 상태가 같은 화면에 집계됩니다."},
-  {start: 126.5, end: 132.2, text: "추천 공고는 Fit Score 순서로 정렬되고 네 가지 점수의 가중치를 조정할 수 있습니다."},
-  {start: 132.2, end: 137.6, text: "이 미리보기는 저장된 구성 점수만 다시 계산하며 Gemini를 호출하지 않습니다."},
-  {start: 138.5, end: 143.5, text: "상위 공고를 열면 종합 점수뿐 아니라 기술, 경력, 방향, 근무 조건을 분리해 볼 수 있습니다."},
-  {start: 143.5, end: 148.7, text: "각 강점과 부족한 점에는 프로필 또는 공고의 실제 문구가 연결됩니다."},
-  {start: 148.7, end: 152.6, text: "사용자는 원문 근거를 읽고 추천 결과를 다시 판단할 수 있습니다."},
-  {start: 153.5, end: 158.5, text: "근무 형태처럼 정보가 모호한 공고는 Review Required로 분류합니다."},
-  {start: 158.5, end: 163.6, text: "계약직처럼 명확한 제외 조건을 위반한 공고는 점수가 높아도 Excluded가 됩니다."},
-  {start: 164.5, end: 169.0, text: "다음 단계는 지원서 맞춤화와 면접 준비, 지원 상태 관리입니다."},
-  {start: 169.0, end: 173.1, text: "안정적인 채용 API와 기술 격차 분석으로 데이터 활용을 넓힐 수 있습니다."},
-  {start: 173.1, end: 176.6, text: "BigQuery 분석과 Cloud Monitoring으로 추천 이력, 오류와 비용도 관찰할 계획입니다."},
-  {start: 177.5, end: 181.2, text: "Career Radar는 AI의 속도와 사용자의 판단을 연결합니다."},
-  {start: 181.2, end: 184.6, text: "근거가 보이고, 결과가 반복 가능하며, 최종 결정권은 사용자에게 있습니다."},
+  {start: 105.4, end: 110.6, text: "실제 화면에서는 완료된 Collection Run과 정규화된 Job Pool을 확인할 수 있습니다."},
+  {start: 110.6, end: 115.6, text: "발견, 신규, 중복, 검토 필요, 실패 상태가 같은 화면에 집계됩니다."},
+  {start: 116.5, end: 122.2, text: "추천 공고는 Fit Score 순서로 정렬되고 네 가지 점수의 가중치를 조정할 수 있습니다."},
+  {start: 122.2, end: 127.6, text: "이 미리보기는 저장된 구성 점수만 다시 계산하며 Gemini를 호출하지 않습니다."},
+  {start: 128.5, end: 133.5, text: "상위 공고를 열면 종합 점수뿐 아니라 기술, 경력, 방향, 근무 조건을 분리해 볼 수 있습니다."},
+  {start: 133.5, end: 138.7, text: "각 강점과 부족한 점에는 프로필 또는 공고의 실제 문구가 연결됩니다."},
+  {start: 138.7, end: 142.6, text: "사용자는 원문 근거를 읽고 추천 결과를 다시 판단할 수 있습니다."},
+  {start: 143.5, end: 148.5, text: "근무 형태처럼 정보가 모호한 공고는 Review Required로 분류합니다."},
+  {start: 148.5, end: 153.6, text: "계약직처럼 명확한 제외 조건을 위반한 공고는 점수가 높아도 Excluded가 됩니다."},
+  {start: 154.5, end: 159.0, text: "다음 단계는 지원서 맞춤화와 면접 준비, 지원 상태 관리입니다."},
+  {start: 159.0, end: 163.1, text: "안정적인 채용 API와 기술 격차 분석으로 데이터 활용을 넓힐 수 있습니다."},
+  {start: 163.1, end: 166.6, text: "BigQuery 분석과 Cloud Monitoring으로 추천 이력, 오류와 비용도 관찰할 계획입니다."},
+  {start: 167.5, end: 171.2, text: "Career Radar는 AI의 속도와 사용자의 판단을 연결합니다."},
+  {start: 171.2, end: 174.6, text: "근거가 보이고, 결과가 반복 가능하며, 최종 결정권은 사용자에게 있습니다."},
 ];

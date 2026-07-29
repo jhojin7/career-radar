@@ -8,3 +8,4 @@ dist/
 data/
 artifacts/presentation/*-remotion-master.mp4
 # Runtime Job Posting corpora and raw snapshots live under data/; tracked fixtures must stay synthetic.
+.agents/skills/
